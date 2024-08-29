@@ -1,2 +1,4 @@
 # Hex-Chess
-Based on Gliński's hexagonal chess, this variant of chess is explored through the means of a website. 
+Based on Gliński's hexagonal chess, this variant of chess is tested for fun 
+
+https://en.wikipedia.org/wiki/Hexagonal_chess#Gliński's_hexagonal_chess
