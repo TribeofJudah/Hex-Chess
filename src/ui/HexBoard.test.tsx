@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { HexBoard } from './HexBoard'
-import { PieceLegend } from './pieces/Piece'
 
 describe('HexBoard', () => {
   it('mounts the 91-cell board with per-cell a11y ids', () => {
