@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { HexBoard, type BoardPieces } from './ui/HexBoard'
+import { ControlBar } from './ui/ControlBar'
 import { STARTING_POSITION, type PieceType, type Color } from './board/pieces'
 import { axialToNotation } from './board/notation'
 import type { PieceKind, PieceColor } from './ui/hexMath'
@@ -19,7 +20,7 @@ const COLOR_MAP: Record<Color, PieceColor> = {
 }
 
 export default function App() {
-  const initialPieces: BoardPieces = useMemo(() => {
+  const pieces: BoardPieces = useMemo(() => {
     const map: BoardPieces = {}
     for (const [key, piece] of STARTING_POSITION) {
       const [q, r] = key.split(',').map(Number)
@@ -34,6 +35,9 @@ export default function App() {
     return map
   }, [])
 
+  const [scanlines, setScanlines] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
+
   return (
     <main className="app">
       <header className="app__header">
@@ -41,8 +45,31 @@ export default function App() {
         <p className="app__subtitle">Gliński&apos;s variant — hotseat</p>
       </header>
 
-      <section className="app__board-container" data-testid="board-section">
-        <HexBoard pieces={initialPieces} size={24} legend={true} scanlines={true} />
+      <ControlBar
+        scanlines={scanlines}
+        onToggleScanlines={() => setScanlines((on) => !on)}
+        onNewGame={() => setSelected(null)}
+      />
+
+      <section
+        className="app__board-container"
+        data-testid="board-section"
+        aria-label="Chess board"
+      >
+        {/* T8 wires this to real game state; White opens, so it holds. */}
+        <p className="hxc-status" role="status">
+          White to move
+        </p>
+        <HexBoard
+          pieces={pieces}
+          size={24}
+          legend={true}
+          scanlines={scanlines}
+          onCellClick={(notation) =>
+            setSelected((current) => (current === notation ? null : notation))
+          }
+          selectedCell={selected ?? undefined}
+        />
       </section>
 
       <footer className="app__footer">
@@ -51,4 +78,3 @@ export default function App() {
     </main>
   )
 }
-

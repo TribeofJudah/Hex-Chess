@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { HexBoard } from './HexBoard'
 
 describe('HexBoard', () => {
@@ -36,5 +36,57 @@ describe('HexBoard', () => {
       .getByRole('img', { name: /91 cells, 1 pieces placed/ })
       .closest('.hxc-wrapper')
     expect(wrapper?.className).toContain('hxc-wrapper--scanlines')
+  })
+})
+
+describe('HexBoard interactivity', () => {
+  it('reports cell clicks by notation', () => {
+    const onCellClick = vi.fn()
+    render(<HexBoard onCellClick={onCellClick} legend={false} />)
+    fireEvent.click(screen.getByTestId('cell-e2'))
+    expect(onCellClick).toHaveBeenCalledWith('e2')
+  })
+
+  it('activates cells with keyboard as well', () => {
+    const onCellClick = vi.fn()
+    render(<HexBoard onCellClick={onCellClick} legend={false} />)
+    const cell = screen.getByTestId('cell-f1')
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    fireEvent.keyDown(screen.getByTestId('cell-k5'), { key: ' ' })
+    expect(onCellClick).toHaveBeenCalledWith('f1')
+    expect(onCellClick).toHaveBeenCalledWith('k5')
+  })
+
+  it('is not interactive without onCellClick', () => {
+    const { container } = render(<HexBoard legend={false} />)
+    const interactive = container.querySelectorAll('polygon[tabindex]')
+    expect(interactive).toHaveLength(0)
+  })
+
+  it('highlights selection, targets, last move, and check', () => {
+    render(
+      <HexBoard
+        legend={false}
+        onCellClick={() => {}}
+        selectedCell="e2"
+        validTargets={['e4', 'd4']}
+        lastMove={['g10', 'g9']}
+        inCheckCell="k7"
+      />,
+    )
+    expect(screen.getByTestId('cell-e2').getAttribute('class')).toContain(
+      'hxc-cell--selected',
+    )
+    expect(screen.getByTestId('target-e4')).toBeTruthy()
+    expect(screen.getByTestId('target-d4')).toBeTruthy()
+    expect(screen.getByTestId('cell-g10').getAttribute('class')).toContain(
+      'hxc-cell--last',
+    )
+    expect(screen.getByTestId('cell-g9').getAttribute('class')).toContain(
+      'hxc-cell--last',
+    )
+    expect(screen.getByTestId('cell-k7').getAttribute('class')).toContain(
+      'hxc-cell--check',
+    )
   })
 })
