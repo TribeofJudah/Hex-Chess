@@ -4,6 +4,7 @@ import { ControlBar } from './ui/ControlBar'
 import { MoveList } from './ui/MoveList'
 import { GameOverBanner } from './ui/GameOverBanner'
 import { useGame, type GameOver } from './ui/useGame'
+import { glinskiRules } from './rules/adapter'
 
 function gameOverText(gameOver: GameOver): string {
   if (gameOver.winner) {
@@ -17,7 +18,7 @@ function gameOverText(gameOver: GameOver): string {
 }
 
 export default function App() {
-  const game = useGame()
+  const game = useGame(glinskiRules)
   const [scanlines, setScanlines] = useState(true)
 
   const status = game.gameOver
@@ -57,6 +58,7 @@ export default function App() {
             selectedCell={game.selected ?? undefined}
             validTargets={game.validTargets}
             lastMove={game.lastMove ?? undefined}
+            inCheckCell={game.inCheckCell}
           />
           {game.gameOver ? (
             <GameOverBanner

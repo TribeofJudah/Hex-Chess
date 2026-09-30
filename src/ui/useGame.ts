@@ -28,6 +28,8 @@ export interface GameRules {
   /** Optional engine verdict (checkmate/stalemate); useGame itself detects
       the bookkeeping draws (50-move, threefold repetition). */
   statusAfter?(position: BoardPieces, turn: PieceColor): GameOver | null
+  /** Optional cell of the king in check (empty/null if not in check). */
+  inCheckCell?(position: BoardPieces, turn: PieceColor): string | null
 }
 
 const KIND_TO_LETTER: Record<Exclude<PieceKind, 'pawn'>, string> = {
@@ -229,6 +231,7 @@ export interface UseGameResult {
   halfmove: number
   gameOver: GameOver | null
   lastMove: [string, string] | null
+  inCheckCell?: string
   canUndo: boolean
   clickCell(notation: string): void
   undo(): void
@@ -246,6 +249,8 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     dispatch({ type: 'click', notation, rules })
   const undo = () => dispatch({ type: 'undo' })
   const newGame = () => dispatch({ type: 'newGame' })
+  const inCheckCell =
+    rules.inCheckCell?.(game.position, game.turn) ?? undefined
 
   return {
     position: game.position,
@@ -257,6 +262,7 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     halfmove: game.halfmove,
     gameOver: game.gameOver,
     lastMove: game.lastMove,
+    inCheckCell,
     canUndo: history.length > 0,
     clickCell,
     undo,
