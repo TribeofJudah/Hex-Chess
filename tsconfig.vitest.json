@@ -1,0 +1,10 @@
+// Test files: same strictness as app code, plus Vitest globals.
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"]
+}
