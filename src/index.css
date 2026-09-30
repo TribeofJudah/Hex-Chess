@@ -1,0 +1,79 @@
+:root {
+  /* 8-bit palette tokens (T7 will extend these) */
+  --color-bg: #0f0f1b;
+  --color-panel: #1a1a2e;
+  --color-border: #e0e0e0;
+  --color-text: #f8f8f2;
+  --color-text-dim: #8b8b9e;
+  --color-accent: #f4a825;
+  --color-hex: #2d2d52;
+
+  --font-pixel: 'Press Start 2P', monospace;
+  --border-chunky: 2px solid var(--color-border);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  padding: 4rem 1rem 2rem;
+  text-align: center;
+}
+
+.app__hex {
+  width: 96px;
+  height: 96px;
+}
+
+.app__title {
+  font-family: var(--font-pixel);
+  font-size: 1.75rem;
+  margin: 1rem 0 0.5rem;
+  color: var(--color-accent);
+  text-shadow: 3px 3px 0 #000;
+}
+
+.app__subtitle {
+  font-family: var(--font-pixel);
+  font-size: 0.625rem;
+  color: var(--color-text-dim);
+  margin: 0;
+}
+
+.app__panel {
+  background: var(--color-panel);
+  border: var(--border-chunky);
+  padding: 1.5rem 2rem;
+  box-shadow: 6px 6px 0 #000;
+}
+
+.app__status {
+  font-family: var(--font-pixel);
+  font-size: 0.75rem;
+  margin: 0 0 0.75rem;
+  color: #6bcf63;
+}
+
+.app__hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-dim);
+}
+
+.app__footer {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
