@@ -1,42 +1,29 @@
-import { useMemo, useState } from 'react'
-import { HexBoard, type BoardPieces } from './ui/HexBoard'
+import { useState } from 'react'
+import { HexBoard } from './ui/HexBoard'
 import { ControlBar } from './ui/ControlBar'
-import { STARTING_POSITION, type PieceType, type Color } from './board/pieces'
-import { axialToNotation } from './board/notation'
-import type { PieceKind, PieceColor } from './ui/hexMath'
+import { MoveList } from './ui/MoveList'
+import { GameOverBanner } from './ui/GameOverBanner'
+import { useGame, type GameOver } from './ui/useGame'
+import { glinskiRules } from './rules/adapter'
 
-const TYPE_TO_KIND: Record<PieceType, PieceKind> = {
-  K: 'king',
-  Q: 'queen',
-  R: 'rook',
-  B: 'bishop',
-  N: 'knight',
-  P: 'pawn',
-}
-
-const COLOR_MAP: Record<Color, PieceColor> = {
-  w: 'white',
-  b: 'black',
+function gameOverText(gameOver: GameOver): string {
+  if (gameOver.winner) {
+    return gameOver.kind === 'checkmate'
+      ? `Checkmate — ${gameOver.winner} wins`
+      : `Stalemate — ${gameOver.winner} wins 0.75-0.25`
+  }
+  return gameOver.kind === 'fifty-move'
+    ? 'Draw — fifty-move rule'
+    : 'Draw — threefold repetition'
 }
 
 export default function App() {
-  const pieces: BoardPieces = useMemo(() => {
-    const map: BoardPieces = {}
-    for (const [key, piece] of STARTING_POSITION) {
-      const [q, r] = key.split(',').map(Number)
-      const notation = axialToNotation({ q, r })
-      if (notation) {
-        map[notation] = {
-          kind: TYPE_TO_KIND[piece.type],
-          color: COLOR_MAP[piece.color],
-        }
-      }
-    }
-    return map
-  }, [])
-
+  const game = useGame(glinskiRules)
   const [scanlines, setScanlines] = useState(true)
-  const [selected, setSelected] = useState<string | null>(null)
+
+  const status = game.gameOver
+    ? gameOverText(game.gameOver)
+    : `${game.turn === 'white' ? 'White' : 'Black'} to move`
 
   return (
     <main className="app">
@@ -48,29 +35,40 @@ export default function App() {
       <ControlBar
         scanlines={scanlines}
         onToggleScanlines={() => setScanlines((on) => !on)}
-        onNewGame={() => setSelected(null)}
+        onNewGame={game.newGame}
+        onUndo={game.undo}
+        undoEnabled={game.canUndo}
       />
 
-      <section
-        className="app__board-container"
-        data-testid="board-section"
-        aria-label="Chess board"
-      >
-        {/* T8 wires this to real game state; White opens, so it holds. */}
-        <p className="hxc-status" role="status">
-          White to move
-        </p>
-        <HexBoard
-          pieces={pieces}
-          size={24}
-          legend={true}
-          scanlines={scanlines}
-          onCellClick={(notation) =>
-            setSelected((current) => (current === notation ? null : notation))
-          }
-          selectedCell={selected ?? undefined}
-        />
-      </section>
+      <div className="app__layout">
+        <section
+          className="app__board-container"
+          data-testid="board-section"
+          aria-label="Chess board"
+        >
+          <p className="hxc-status" role="status">
+            {status}
+          </p>
+          <HexBoard
+            pieces={game.position}
+            size={24}
+            legend={true}
+            scanlines={scanlines}
+            onCellClick={game.clickCell}
+            selectedCell={game.selected ?? undefined}
+            validTargets={game.validTargets}
+            lastMove={game.lastMove ?? undefined}
+            inCheckCell={game.inCheckCell}
+          />
+          {game.gameOver ? (
+            <GameOverBanner
+              gameOver={game.gameOver}
+              onPlayAgain={game.newGame}
+            />
+          ) : null}
+        </section>
+        <MoveList moves={game.moves} turn={game.turn} />
+      </div>
 
       <footer className="app__footer">
         <p>Vite + React + TypeScript · 91 Cells · Gliński Hexagonal Chess</p>

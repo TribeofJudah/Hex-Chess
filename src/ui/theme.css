@@ -142,6 +142,94 @@
   margin: 0 0 8px;
 }
 
+/* Move history panel (T8). */
+.hxc-movelist {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-panel);
+  border: var(--border-chunky);
+  padding: 10px;
+  width: 100%;
+}
+
+.hxc-grid {
+  display: grid;
+  grid-template-columns: 3ch 1fr 1fr;
+  column-gap: 8px;
+  margin: 0;
+}
+
+.hxc-movelist__head {
+  color: var(--color-text-dim);
+  border-bottom: 2px solid var(--color-border);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.hxc-movelist__body {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.hxc-movelist li {
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hxc-movelist__num {
+  color: var(--color-text-dim);
+}
+
+.hxc-movelist__empty {
+  color: var(--color-text-dim);
+}
+
+.hxc-movelist__turn {
+  margin: 8px 0 0;
+  padding-top: 6px;
+  border-top: 2px solid var(--color-border);
+  color: var(--color-accent);
+}
+
+/* Game-over banner (T8). */
+.hxc-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: var(--color-panel);
+  border: 2px solid var(--alert);
+  box-shadow: 0 0 0 2px var(--color-bg);
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.hxc-banner__text {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+/* Board + move log side by side on wide screens, stacked on narrow. */
+.app__layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.app__board-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 /* Responsive: board shrinks with viewport, controls stack comfortably. */
 .hxc-svg {
   max-width: 100%;
