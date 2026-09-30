@@ -1,0 +1,55 @@
+/* T7 scope: board-side retro tokens. Base 8-bit palette, pixel font util
+   and CRT effects live app-wide in src/index.css; these are the tokens the
+   board and pieces add on top. */
+
+:root {
+  /* Cell tints (Gliński's three board colours, center = mid). Kept dim so
+     white glyphs hold contrast on the lightest cells. */
+  --cell-light: #44446c;
+  --cell-mid: #33335a;
+  --cell-dark: #23233e;
+  --cell-border: #10101c;
+  --cell-hover: #f4a825;
+
+  --piece-white: #f0f0e8;
+  --piece-white-accent: #44446a;
+  --piece-black: #46467a;
+  --piece-black-accent: #e8e8f4;
+}
+
+.hxc-wrapper {
+  position: relative;
+  display: inline-block;
+  background: var(--color-bg);
+  padding: 12px;
+  border: var(--border-chunky);
+}
+
+/* Toggleable CRT scanlines, applied on the wrapper. */
+.hxc-wrapper--scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgb(0 0 0 / 22%) 2px 4px
+  );
+}
+
+/* Pixel typeface utility for board labels and captions. */
+.hxc-font {
+  font-family: 'Press Start 2P', monospace;
+  letter-spacing: 1px;
+}
+
+.hxc-svg {
+  display: block;
+}
+
+/* Highlight ring for legal-move / check markers (added in T7/T8). */
+.hxc-cell--legal {
+  fill: var(--cell-hover);
+  opacity: 0.45;
+}
