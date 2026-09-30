@@ -26,7 +26,9 @@ describe('ControlBar', () => {
 
   it('keeps UNDO disabled until history exists (T8)', () => {
     const onUndo = vi.fn()
-    render(<ControlBar scanlines onToggleScanlines={() => {}} onUndo={onUndo} />)
+    render(
+      <ControlBar scanlines onToggleScanlines={() => {}} onUndo={onUndo} />,
+    )
     const undo = screen.getByRole('button', { name: 'Undo' })
     expect(undo).toHaveProperty('disabled', true)
     fireEvent.click(undo)

@@ -1,7 +1,13 @@
 import { notationToAxial, axialToNotation } from '../board/notation'
 import { keyOf, type Piece, type PieceType } from '../board/pieces'
 import { findKing, inCheck, movesFrom, status, type GameState } from './rules'
-import type { BoardPieces, GameOver, GameRules, PieceColor, PieceKind } from '../ui/useGame'
+import type {
+  BoardPieces,
+  GameOver,
+  GameRules,
+  PieceColor,
+  PieceKind,
+} from '../ui/useGame'
 
 const KIND_TO_TYPE: Record<PieceKind, PieceType> = {
   king: 'K',

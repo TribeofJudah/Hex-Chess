@@ -27,7 +27,9 @@ describe('board extent', () => {
   })
 
   it('gives files heights 6,7,8,9,10,11,10,9,8,7,6', () => {
-    expect([...FILES].map(fileHeight)).toEqual([6, 7, 8, 9, 10, 11, 10, 9, 8, 7, 6])
+    expect([...FILES].map(fileHeight)).toEqual([
+      6, 7, 8, 9, 10, 11, 10, 9, 8, 7, 6,
+    ])
   })
 })
 
@@ -45,11 +47,17 @@ describe('notch-bent ranks', () => {
 
   it('labels each file 1..height bottom-up (f11 is the lone top cell)', () => {
     expect({ ...fileRankToCell('f', 11) }).toEqual({ q: 0, r: 5, s: -5 })
-    expect(cellToFileRank({ q: 0, r: 5, s: -5 })).toEqual({ file: 'f', rank: 11 })
+    expect(cellToFileRank({ q: 0, r: 5, s: -5 })).toEqual({
+      file: 'f',
+      rank: 11,
+    })
   })
 
   it('bottom corners are a1 and l6', () => {
-    expect(cellToFileRank({ q: -5, r: 0, s: 5 })).toEqual({ file: 'a', rank: 1 })
+    expect(cellToFileRank({ q: -5, r: 0, s: 5 })).toEqual({
+      file: 'a',
+      rank: 1,
+    })
     const l6 = fileRankToCell('l', 6)
     expect({ q: l6.q, r: l6.r }).toEqual({ q: 5, r: 0 })
   })
@@ -82,7 +90,7 @@ describe('projection', () => {
     const corners = cellCorners(size)
     expect(corners).toHaveLength(6)
     expect(cellPoints(0, 0, corners)).toBe(
-      '20,0 10,17.321 -10,17.321 -20,0 -10,-17.321 10,-17.321'
+      '20,0 10,17.321 -10,17.321 -20,0 -10,-17.321 10,-17.321',
     )
   })
 

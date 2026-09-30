@@ -6,6 +6,7 @@ import react from '@vitejs/plugin-react'
 // React plugin applies to .tsx tests as well. CI runs single-fork for
 // deterministic output.
 export default defineConfig({
+  base: './',
   plugins: [react()],
   test: {
     environment: 'jsdom',

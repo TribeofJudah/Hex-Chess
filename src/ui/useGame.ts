@@ -64,9 +64,7 @@ export const lenientRules: GameRules = {
   movesFor(position, from) {
     const own = position[from]?.color
     if (!own) return []
-    return ALL_NOTATIONS.filter(
-      (notation) => position[notation]?.color !== own,
-    )
+    return ALL_NOTATIONS.filter((notation) => position[notation]?.color !== own)
   },
 }
 
@@ -130,10 +128,7 @@ function freshState(): GameState {
 }
 
 /** Resolve end-of-game state after `next` was produced. */
-function evaluate(
-  next: GameState,
-  rules: GameRules,
-): GameOver | null {
+function evaluate(next: GameState, rules: GameRules): GameOver | null {
   const key = positionKey(next.position)
   if ((next.keyCounts[key] ?? 0) >= 3) return { kind: 'repetition' }
   if (next.halfmove >= 100) return { kind: 'fifty-move' }
@@ -173,7 +168,8 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         position[action.notation] = moving
         const captured = { ...game.captured }
         if (target) captured[target.color] += 1
-        const halfmove = moving.kind === 'pawn' || target ? 0 : game.halfmove + 1
+        const halfmove =
+          moving.kind === 'pawn' || target ? 0 : game.halfmove + 1
         const key = positionKey(position)
         const game2: GameState = {
           position,
@@ -187,7 +183,10 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           captured,
           halfmove,
           lastMove: [from, action.notation],
-          keyCounts: { ...game.keyCounts, [key]: (game.keyCounts[key] ?? 0) + 1 },
+          keyCounts: {
+            ...game.keyCounts,
+            [key]: (game.keyCounts[key] ?? 0) + 1,
+          },
           gameOver: null,
         }
         game2.gameOver = evaluate(game2, rules)
@@ -196,7 +195,10 @@ function reducer(store: GameStore, action: GameAction): GameStore {
       // Select / deselect own piece.
       if (game.position[action.notation]?.color === game.turn) {
         if (game.selected === action.notation) {
-          return { ...store, game: { ...game, selected: null, validTargets: [] } }
+          return {
+            ...store,
+            game: { ...game, selected: null, validTargets: [] },
+          }
         }
         return {
           ...store,
@@ -249,8 +251,7 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     dispatch({ type: 'click', notation, rules })
   const undo = () => dispatch({ type: 'undo' })
   const newGame = () => dispatch({ type: 'newGame' })
-  const inCheckCell =
-    rules.inCheckCell?.(game.position, game.turn) ?? undefined
+  const inCheckCell = rules.inCheckCell?.(game.position, game.turn) ?? undefined
 
   return {
     position: game.position,

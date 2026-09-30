@@ -92,7 +92,13 @@ export const PIECE_KINDS: PieceKind[] = [
 export const PIECE_COLORS: PieceColor[] = ['white', 'black']
 
 /** The bitmap as SVG rects, for embedding in any 8x10-viewBox svg. */
-export function GlyphRects({ kind, color }: { kind: PieceKind; color: PieceColor }) {
+export function GlyphRects({
+  kind,
+  color,
+}: {
+  kind: PieceKind
+  color: PieceColor
+}) {
   const main = `var(--piece-${color})`
   const accent = `var(--piece-${color}-accent)`
   return (
@@ -146,7 +152,12 @@ export function PieceLegend({ width = 24 }: { width?: number }) {
     <div className="hxc-legend" data-testid="piece-legend">
       {PIECE_COLORS.map((color) =>
         PIECE_KINDS.map((kind) => (
-          <Piece key={`${color}-${kind}`} kind={kind} color={color} width={width} />
+          <Piece
+            key={`${color}-${kind}`}
+            kind={kind}
+            color={color}
+            width={width}
+          />
         )),
       )}
     </div>

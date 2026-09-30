@@ -7,7 +7,10 @@ describe('GameOverBanner', () => {
   const cases: Array<[GameOver, RegExp]> = [
     [{ kind: 'checkmate', winner: 'white' }, /Checkmate — white wins/i],
     [{ kind: 'checkmate', winner: 'black' }, /Checkmate — black wins/i],
-    [{ kind: 'stalemate', winner: 'white' }, /Stalemate — white wins 0\.75-0\.25/i],
+    [
+      { kind: 'stalemate', winner: 'white' },
+      /Stalemate — white wins 0\.75-0\.25/i,
+    ],
     [{ kind: 'fifty-move' }, /fifty-move rule/i],
     [{ kind: 'repetition' }, /threefold repetition/i],
   ]
