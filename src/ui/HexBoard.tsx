@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type KeyboardEvent } from 'react'
 import {
   allCells,
   boardBounds,
@@ -25,6 +25,16 @@ export interface HexBoardProps {
   scanlines?: boolean
   /** Glyph strip below the board (preview aid), defaults on. */
   legend?: boolean
+  /** Click/tap + keyboard-activation handler for a cell. */
+  onCellClick?: (notation: string) => void
+  /** Currently selected cell, highlighted with an accent ring. */
+  selectedCell?: string
+  /** Cells (notation) to mark as legal destinations. */
+  validTargets?: string[]
+  /** Origin and destination of the last move, outlined in amber. */
+  lastMove?: [string, string]
+  /** Cell of the king in check, outlined in alert red. */
+  inCheckCell?: string
 }
 
 /* Proper 3-colouring: every edge-neighbor shifts (q - r) by ±1. Index 0 is
@@ -35,15 +45,28 @@ const CELL_TINTS = [
   'var(--cell-dark)',
 ] as const
 
+const NOTATIONS = new Map(
+  allCells().map((cell) => {
+    const { file, rank } = cellToFileRank(cell)
+    return [`${cell.q},${cell.r}`, { cell, notation: `${file}${rank}` }]
+  }),
+)
+
 export function HexBoard({
   size = 30,
   pieces = {},
   scanlines = true,
   legend = true,
+  onCellClick,
+  selectedCell,
+  validTargets = [],
+  lastMove,
+  inCheckCell,
 }: HexBoardProps) {
   const corners = useMemo(() => cellCorners(size), [size])
   const bounds = useMemo(() => boardBounds(size), [size])
-  const cells = useMemo(() => allCells(), [])
+  const lastMoveSet = useMemo(() => new Set(lastMove ?? []), [lastMove])
+  const targetSet = useMemo(() => new Set(validTargets), [validTargets])
 
   return (
     <div className={`hxc-wrapper${scanlines ? ' hxc-wrapper--scanlines' : ''}`}>
@@ -51,24 +74,33 @@ export function HexBoard({
         className="hxc-svg"
         viewBox={viewBox(size)}
         role="img"
-        aria-label={`Hexagonal chess board, ${cells.length} cells, ${Object.keys(pieces).length} pieces placed`}
+        aria-label={`Hexagonal chess board, ${NOTATIONS.size} cells, ${Object.keys(pieces).length} pieces placed`}
       >
         <g transform={`translate(${bounds.origin.x} ${bounds.origin.y})`}>
-          {cells.map((cell) => {
+          {[...NOTATIONS.values()].map(({ cell, notation }) => {
             const center = cellCenter(cell, size)
             const tint = (((cell.q - cell.r) % 3) + 3) % 3
-            const { file, rank } = cellToFileRank(cell)
+            const classes = ['hxc-cell']
+            if (notation === selectedCell) classes.push('hxc-cell--selected')
+            if (lastMoveSet.has(notation)) classes.push('hxc-cell--last')
+            if (notation === inCheckCell) classes.push('hxc-cell--check')
             return (
-              <polygon
-                key={`${cell.q},${cell.r}`}
-                data-testid={`cell-${file}${rank}`}
+              <CellPolygon
+                key={notation}
+                notation={notation}
+                testId={`cell-${notation}`}
                 points={cellPoints(center.x, -center.y, corners)}
                 fill={CELL_TINTS[tint]}
-                stroke="var(--cell-border)"
+                className={classes.join(' ')}
                 strokeWidth={Math.max(1, size * 0.06)}
+                interactive={Boolean(onCellClick)}
+                onSelect={onCellClick}
               />
             )
           })}
+          {[...targetSet].map((notation) => (
+            <TargetMarker key={notation} notation={notation} size={size} />
+          ))}
           {Object.entries(pieces).map(([notation, piece]) => (
             <PlacedPiece
               key={notation}
@@ -82,6 +114,67 @@ export function HexBoard({
       </svg>
       {legend ? <PieceLegend /> : null}
     </div>
+  )
+}
+
+function CellPolygon({
+  notation,
+  testId,
+  points,
+  fill,
+  className,
+  strokeWidth,
+  interactive,
+  onSelect,
+}: {
+  notation: string
+  testId: string
+  points: string
+  fill: string
+  className: string
+  strokeWidth: number
+  interactive: boolean
+  onSelect?: (notation: string) => void
+}) {
+  const select = () => onSelect?.(notation)
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      select()
+    }
+  }
+  return (
+    <polygon
+      data-testid={testId}
+      points={points}
+      fill={fill}
+      stroke="var(--cell-border)"
+      strokeWidth={strokeWidth}
+      className={className}
+      // SVG shapes aren't buttons; role+label make keyboard focus meaningful.
+      role={interactive ? 'button' : undefined}
+      aria-label={interactive ? `cell ${notation}` : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      cursor={interactive ? 'pointer' : undefined}
+      onClick={interactive ? select : undefined}
+      onKeyDown={interactive ? onKeyDown : undefined}
+    />
+  )
+}
+
+function TargetMarker({ notation, size }: { notation: string; size: number }) {
+  const cell = fileRankToCell(notation.slice(0, 1), Number(notation.slice(1)))
+  const center = cellCenter(cell, size)
+  return (
+    <circle
+      data-testid={`target-${notation}`}
+      cx={center.x}
+      cy={-center.y}
+      r={size * 0.3}
+      fill="var(--cell-hover)"
+      opacity={0.55}
+      pointerEvents="none"
+    />
   )
 }
 
