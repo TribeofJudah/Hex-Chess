@@ -1,0 +1,247 @@
+/* T7 scope: board-side retro tokens. Base 8-bit palette, pixel font util
+   and CRT effects live app-wide in src/index.css; these are the tokens the
+   board and pieces add on top. */
+
+:root {
+  /* Cell tints (Gliński's three board colours, center = mid). Kept dim so
+     white glyphs hold contrast on the lightest cells. */
+  --cell-light: #44446c;
+  --cell-mid: #33335a;
+  --cell-dark: #23233e;
+  --cell-border: #10101c;
+  --cell-hover: #f4a825;
+  --alert: #d84a4a;
+
+  --piece-white: #f0f0e8;
+  --piece-white-accent: #44446a;
+  --piece-black: #46467a;
+  --piece-black-accent: #e8e8f4;
+}
+
+.hxc-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  background: var(--color-bg);
+  padding: 12px;
+  border: var(--border-chunky);
+}
+
+/* Toggleable CRT scanlines, applied on the wrapper. */
+.hxc-wrapper--scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgb(0 0 0 / 22%) 2px 4px
+  );
+}
+
+/* Pixel typeface utility for board labels and captions. */
+.hxc-font {
+  font-family: 'Press Start 2P', monospace;
+  letter-spacing: 1px;
+}
+
+.hxc-svg {
+  display: block;
+}
+
+/* Highlight ring for legal-move / check markers (added in T7/T8). */
+.hxc-cell--legal {
+  fill: var(--cell-hover);
+  opacity: 0.45;
+}
+
+/* Cell states (T7). Strokes only: inline fill stays tint-accurate. */
+.hxc-cell--selected {
+  stroke: var(--cell-hover);
+  stroke-width: 3px;
+}
+
+.hxc-cell--last {
+  stroke: var(--cell-hover);
+  stroke-dasharray: 3 2;
+}
+
+.hxc-cell--check {
+  stroke: var(--alert);
+  stroke-width: 3px;
+}
+
+/* Interactive cells. */
+.hxc-cell[tabindex] {
+  cursor: pointer;
+}
+
+/* Hover only on real pointers: touch taps would stick a hover stroke. */
+@media (hover: hover) and (pointer: fine) {
+  .hxc-cell[tabindex]:hover {
+    stroke: var(--color-accent);
+  }
+}
+
+.hxc-cell[tabindex]:focus-visible {
+  outline: 2px solid var(--color-accent, #f4a825);
+  outline-offset: -2px;
+}
+
+/* Glyph strip. */
+.hxc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Control bar (T7). */
+.hxc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  margin-top: 12px;
+}
+
+.hxc-button {
+  font-family: var(--font-pixel, 'Press Start 2P', monospace);
+  /* 12px floor for legibility; uppercase comes from text-transform below. */
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-text, #f8f8f2);
+  background: var(--color-panel, #1a1a2e);
+  border: var(--border-chunky);
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.hxc-button:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.hxc-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hxc-switch[aria-pressed='true'] {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+/* Turn / status line (T8 will drive this from game state). */
+.hxc-status {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-text);
+  margin: 0 0 8px;
+}
+
+/* Move history panel (T8). */
+.hxc-movelist {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-panel);
+  border: var(--border-chunky);
+  padding: 10px;
+  width: 100%;
+}
+
+.hxc-grid {
+  display: grid;
+  grid-template-columns: 3ch 1fr 1fr;
+  column-gap: 8px;
+  margin: 0;
+}
+
+.hxc-movelist__head {
+  color: var(--color-text-dim);
+  border-bottom: 2px solid var(--color-border);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.hxc-movelist__body {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.hxc-movelist li {
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hxc-movelist__num {
+  color: var(--color-text-dim);
+}
+
+.hxc-movelist__empty {
+  color: var(--color-text-dim);
+}
+
+.hxc-movelist__turn {
+  margin: 8px 0 0;
+  padding-top: 6px;
+  border-top: 2px solid var(--color-border);
+  color: var(--color-accent);
+}
+
+/* Game-over banner (T8). */
+.hxc-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: var(--color-panel);
+  border: 2px solid var(--alert);
+  box-shadow: 0 0 0 2px var(--color-bg);
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.hxc-banner__text {
+  margin: 0;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+/* Board + move log side by side on wide screens, stacked on narrow. */
+.app__layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.app__board-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Responsive: board shrinks with viewport, controls stack comfortably. */
+.hxc-svg {
+  max-width: 100%;
+  height: auto;
+}
+
+@media (max-width: 520px) {
+  .hxc-wrapper {
+    padding: 8px;
+  }
+
+  .hxc-controls {
+    gap: 8px;
+  }
+}
