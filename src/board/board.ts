@@ -6,6 +6,7 @@ export * from './axial'
 export * from './notation'
 export * from './colors'
 export * from './pieces'
+export * from './fen'
 
 import { DIAG_DIRS, ORTHO_DIRS, type Axial } from './axial'
 import { cellColor, type CellColor } from './colors'
