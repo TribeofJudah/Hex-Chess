@@ -153,8 +153,10 @@ export function boardBounds(size: number, padding = 2): Bounds {
   }
 }
 
-/** SVG viewBox string for the projected board. */
+/** SVG viewBox string for the projected board. Centred on world (0, 0)
+   because cells draw in screen space with both positive and negative
+   coordinates (cellCenter gives -halfHeight to +halfHeight for y). */
 export function viewBox(size: number, padding = 2): string {
-  const { width, height } = boardBounds(size, padding)
-  return `0 0 ${width} ${height}`
+  const { width, height, origin } = boardBounds(size, padding)
+  return `${origin.x} ${origin.y} ${width} ${height}`
 }

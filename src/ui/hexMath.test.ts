@@ -103,6 +103,6 @@ describe('projection', () => {
       expect(-y).toBeGreaterThanOrEqual(origin.y)
       expect(-y).toBeLessThanOrEqual(origin.y + height)
     }
-    expect(viewBox(size)).toMatch(/^0 0 [\d.]+ [\d.]+$/)
+    expect(viewBox(size)).toMatch(/^-?[\d.]+ -?[\d.]+ [\d.]+ [\d.]+$/)
   })
 })
