@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { allCells, cellToFileRank } from './hexMath'
 import { initialPieces, lenientRules, useGame, type GameRules } from './useGame'
 
@@ -192,5 +192,126 @@ describe('useGame', () => {
   it('builds the starting position the same way every call', () => {
     expect(initialPieces()).toEqual(initialPieces())
     expect(Object.keys(initialPieces())).toHaveLength(36)
+  })
+})
+
+describe('useGame vs AI', () => {
+  it('replies as Black after the human move, blocks input meanwhile, undoes the pair', async () => {
+    vi.useFakeTimers()
+    try {
+      const { glinskiRules } = await import('../rules/adapter')
+      const hook = renderHook(() => useGame(glinskiRules))
+      act(() => hook.result.current.toggleAi())
+      expect(hook.result.current.aiEnabled).toBe(true)
+
+      move(hook, 'f5', 'f6')
+      expect(hook.result.current.aiThinking).toBe(true)
+      act(() => hook.result.current.clickCell('f7'))
+      expect(hook.result.current.selected).toBeNull()
+
+      act(() => vi.runAllTimers())
+      const { moves, turn, lastMove, aiThinking } = hook.result.current
+      expect(moves).toHaveLength(2)
+      expect(moves[1].color).toBe('black')
+      expect(turn).toBe('white')
+      expect(aiThinking).toBe(false)
+      expect(hook.result.current.position[lastMove![1]].color).toBe('black')
+
+      act(() => hook.result.current.undo())
+      expect(hook.result.current.moves).toEqual([])
+      expect(hook.result.current.turn).toBe('white')
+      expect(hook.result.current.canUndo).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('undoes a single ply in hotseat mode', () => {
+    const hook = renderHook(() => useGame())
+    move(hook, 'f5', 'f6')
+    move(hook, 'f7', 'e6')
+    act(() => hook.result.current.undo())
+    expect(hook.result.current.moves).toHaveLength(1)
+    expect(hook.result.current.turn).toBe('black')
+  })
+})
+
+describe('useGame position editing (T13)', () => {
+  // Ranks 11→1; a single white king on rank 1's sixth cell = f1.
+  const KING_FEN = '1/3/5/7/9/11/11/11/11/11/5K5 w - 0 1'
+
+  it('loads a FEN position, its side to move and clears history', () => {
+    const { result } = renderHook(() => useGame())
+    move({ result }, 'g1', 'f6')
+    expect(result.current.moves).toHaveLength(1)
+    let outcome: { ok: boolean } = { ok: false }
+    act(() => {
+      outcome = result.current.loadFen(KING_FEN)
+    })
+    expect(outcome.ok).toBe(true)
+    expect(result.current.position).toEqual({
+      f1: { kind: 'king', color: 'white' },
+    })
+    expect(result.current.turn).toBe('white')
+    expect(result.current.moves).toEqual([])
+    expect(result.current.canUndo).toBe(false)
+  })
+
+  it('reports a parse error and leaves the position untouched', () => {
+    const { result } = renderHook(() => useGame())
+    const before = result.current.position
+    let outcome: { ok: boolean; error?: string } = { ok: true }
+    act(() => {
+      outcome = result.current.loadFen('nonsense')
+    })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.error).toBeTruthy()
+    expect(result.current.position).toBe(before)
+  })
+})
+
+describe('useGame resign and draw (T16)', () => {
+  it('ends the game when the side to move resigns', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.resign())
+    expect(result.current.gameOver).toEqual({ kind: 'resign', winner: 'black' })
+    const frozen = result.current
+    act(() => result.current.clickCell('g1'))
+    expect(result.current).toBe(frozen)
+  })
+
+  it('ends the game on an agreed draw', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.agreeDraw())
+    expect(result.current.gameOver).toEqual({ kind: 'agreement' })
+  })
+})
+
+describe('useGame AI depth (T15)', () => {
+  it('defaults to 3 and clamps the selector range to 1–5', () => {
+    const { result } = renderHook(() => useGame())
+    expect(result.current.aiDepth).toBe(3)
+    act(() => result.current.setAiDepth(9))
+    expect(result.current.aiDepth).toBe(5)
+    act(() => result.current.setAiDepth(0))
+    expect(result.current.aiDepth).toBe(1)
+  })
+})
+
+describe('useGame move-list jump (T14)', () => {
+  it('jumps the view back and keeps the full move list', () => {
+    const { result } = renderHook(() => useGame())
+    move({ result }, 'g1', 'f6')
+    move({ result }, 'b7', 'b6')
+    expect(result.current.viewPly).toBe(2)
+    act(() => result.current.jumpTo(1))
+    expect(result.current.viewPly).toBe(1)
+    expect(result.current.moves).toHaveLength(2)
+    expect(result.current.position.g1).toBeUndefined()
+    expect(result.current.position.f6).toEqual({ kind: 'king', color: 'white' })
+    expect(result.current.turn).toBe('black')
+    // A board click returns to the live position.
+    act(() => result.current.clickCell('a1'))
+    expect(result.current.viewPly).toBe(2)
   })
 })

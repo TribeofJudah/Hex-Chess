@@ -13,6 +13,8 @@ describe('GameOverBanner', () => {
     ],
     [{ kind: 'fifty-move' }, /fifty-move rule/i],
     [{ kind: 'repetition' }, /threefold repetition/i],
+    [{ kind: 'resign', winner: 'black' }, /black wins — resignation/i],
+    [{ kind: 'agreement' }, /Draw — by agreement/i],
   ]
 
   it.each(cases)('announces %s', (gameOver, text) => {

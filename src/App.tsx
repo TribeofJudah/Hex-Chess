@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import { HexBoard } from './ui/HexBoard'
 import { ControlBar } from './ui/ControlBar'
+import { PositionEditor } from './ui/PositionEditor'
 import { MoveList } from './ui/MoveList'
 import { GameOverBanner } from './ui/GameOverBanner'
 import { useGame, type GameOver } from './ui/useGame'
+import { downloadPgn, toPgn } from './ui/pgn'
 import { glinskiRules } from './rules/adapter'
 
 function gameOverText(gameOver: GameOver): string {
+  if (gameOver.kind === 'agreement') return 'Draw — by agreement'
+  if (gameOver.kind === 'resign') return `${gameOver.winner} wins — resignation`
   if (gameOver.winner) {
     return gameOver.kind === 'checkmate'
       ? `Checkmate — ${gameOver.winner} wins`
@@ -38,7 +42,16 @@ export default function App() {
         onNewGame={game.newGame}
         onUndo={game.undo}
         undoEnabled={game.canUndo}
+        aiEnabled={game.aiEnabled}
+        onToggleAi={game.toggleAi}
+        aiDepth={game.aiDepth}
+        onAiDepthChange={game.setAiDepth}
+        onResign={game.resign}
+        onOfferDraw={game.agreeDraw}
+        onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
       />
+
+      <PositionEditor onLoad={game.loadFen} />
 
       <div className="app__layout">
         <section
@@ -67,7 +80,12 @@ export default function App() {
             />
           ) : null}
         </section>
-        <MoveList moves={game.moves} turn={game.turn} />
+        <MoveList
+          moves={game.moves}
+          turn={game.turn}
+          viewPly={game.viewPly}
+          onJump={game.jumpTo}
+        />
       </div>
 
       <footer className="app__footer">

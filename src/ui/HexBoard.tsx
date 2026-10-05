@@ -1,7 +1,8 @@
-import { useMemo, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { isValidCell } from '../board/axial'
+import { axialToNotation, notationToAxial } from '../board/notation'
 import {
   allCells,
-  boardBounds,
   cellCorners,
   cellCenter,
   cellPoints,
@@ -52,6 +53,24 @@ const NOTATIONS = new Map(
   }),
 )
 
+/* Arrow keys walk the axial grid: files step with q, ranks step with r
+   (screen-up = r+1 for every file, since cells project flat-top). */
+const ARROW_STEPS: Record<string, { q: number; r: number }> = {
+  ArrowLeft: { q: -1, r: 0 },
+  ArrowRight: { q: 1, r: 0 },
+  ArrowUp: { q: 0, r: 1 },
+  ArrowDown: { q: 0, r: -1 },
+}
+
+/** The neighbor of `notation` one step along an arrow key, or null at the rim. */
+function arrowNeighbor(notation: string, key: string): string | null {
+  const dir = ARROW_STEPS[key]
+  const cell = notationToAxial(notation)
+  if (!dir || !cell) return null
+  const next = { q: cell.q + dir.q, r: cell.r + dir.r }
+  return isValidCell(next) ? axialToNotation(next) : null
+}
+
 export function HexBoard({
   size = 30,
   pieces = {},
@@ -64,19 +83,46 @@ export function HexBoard({
   inCheckCell,
 }: HexBoardProps) {
   const corners = useMemo(() => cellCorners(size), [size])
-  const bounds = useMemo(() => boardBounds(size), [size])
   const lastMoveSet = useMemo(() => new Set(lastMove ?? []), [lastMove])
   const targetSet = useMemo(() => new Set(validTargets), [validTargets])
 
+  // Roving focus: one cell is tabbable; arrows move it, Enter/Space act (T17).
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [focused, setFocused] = useState('f6')
+  const interactive = Boolean(onCellClick)
+
+  useEffect(() => {
+    if (!interactive) return
+    rootRef.current
+      ?.querySelector<SVGElement>(`[data-testid="cell-${focused}"]`)
+      ?.focus?.()
+  }, [focused, interactive])
+
+  const onCellKey = (notation: string, event: KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onCellClick?.(notation)
+      return
+    }
+    const next = arrowNeighbor(notation, event.key)
+    if (next) {
+      event.preventDefault()
+      setFocused(next)
+    }
+  }
+
   return (
-    <div className={`hxc-wrapper${scanlines ? ' hxc-wrapper--scanlines' : ''}`}>
+    <div
+      ref={rootRef}
+      className={`hxc-wrapper${scanlines ? ' hxc-wrapper--scanlines' : ''}`}
+    >
       <svg
         className="hxc-svg"
         viewBox={viewBox(size)}
         role="img"
         aria-label={`Hexagonal chess board, ${NOTATIONS.size} cells, ${Object.keys(pieces).length} pieces placed`}
       >
-        <g transform={`translate(${bounds.origin.x} ${bounds.origin.y})`}>
+        <g>
           {[...NOTATIONS.values()].map(({ cell, notation }) => {
             const center = cellCenter(cell, size)
             const tint = (((cell.q - cell.r) % 3) + 3) % 3
@@ -93,8 +139,10 @@ export function HexBoard({
                 fill={CELL_TINTS[tint]}
                 className={classes.join(' ')}
                 strokeWidth={Math.max(1, size * 0.06)}
-                interactive={Boolean(onCellClick)}
+                interactive={interactive}
+                tabIndex={notation === focused ? 0 : -1}
                 onSelect={onCellClick}
+                onKeyDown={onCellKey}
               />
             )
           })}
@@ -125,7 +173,9 @@ function CellPolygon({
   className,
   strokeWidth,
   interactive,
+  tabIndex,
   onSelect,
+  onKeyDown,
 }: {
   notation: string
   testId: string
@@ -134,15 +184,11 @@ function CellPolygon({
   className: string
   strokeWidth: number
   interactive: boolean
+  tabIndex: number
   onSelect?: (notation: string) => void
+  onKeyDown?: (notation: string, event: KeyboardEvent) => void
 }) {
   const select = () => onSelect?.(notation)
-  const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      select()
-    }
-  }
   return (
     <polygon
       data-testid={testId}
@@ -154,10 +200,12 @@ function CellPolygon({
       // SVG shapes aren't buttons; role+label make keyboard focus meaningful.
       role={interactive ? 'button' : undefined}
       aria-label={interactive ? `cell ${notation}` : undefined}
-      tabIndex={interactive ? 0 : undefined}
+      tabIndex={interactive ? tabIndex : undefined}
       cursor={interactive ? 'pointer' : undefined}
       onClick={interactive ? select : undefined}
-      onKeyDown={interactive ? onKeyDown : undefined}
+      onKeyDown={
+        interactive ? (event) => onKeyDown?.(notation, event) : undefined
+      }
     />
   )
 }

@@ -1,5 +1,15 @@
-import { useReducer } from 'react'
-import { STARTING_POSITION, type PieceType, type Color } from '../board/pieces'
+import { useEffect, useMemo, useReducer, useState } from 'react'
+import { bestMove } from '../ai/ai'
+import { parsePosition, type Position } from '../board/fen'
+import { axialToNotation, notationToAxial } from '../board/notation'
+import {
+  keyOf,
+  STARTING_POSITION,
+  type Color,
+  type Piece,
+  type PieceType,
+} from '../board/pieces'
+import type { GameState as RulesState } from '../rules/rules'
 import { allCells, cellToFileRank } from './hexMath'
 import type { PieceColor, PieceKind } from './hexMath'
 
@@ -7,8 +17,14 @@ import type { PieceColor, PieceKind } from './hexMath'
 export type BoardPieces = Record<string, { kind: PieceKind; color: PieceColor }>
 
 export interface GameOver {
-  kind: 'checkmate' | 'stalemate' | 'fifty-move' | 'repetition'
-  /** Winner for checkmate and stalemate (3/4 point); absent for draws. */
+  kind:
+    | 'checkmate'
+    | 'stalemate'
+    | 'fifty-move'
+    | 'repetition'
+    | 'resign'
+    | 'agreement'
+  /** Winner for checkmate, stalemate (3/4 point) and resign; absent for draws. */
   winner?: PieceColor
 }
 
@@ -71,6 +87,12 @@ export const lenientRules: GameRules = {
 const other = (color: PieceColor): PieceColor =>
   color === 'white' ? 'black' : 'white'
 
+/** Clamp an AI search depth to the supported 1–5 range (T15). */
+function clampDepth(depth: number): number {
+  if (!Number.isFinite(depth)) return 3
+  return Math.min(5, Math.max(1, Math.round(depth)))
+}
+
 /** Stable position hash for repetition counting. */
 function positionKey(position: BoardPieces): string {
   return Object.keys(position)
@@ -84,6 +106,29 @@ function sanFor(piece: { kind: PieceKind }, from: string, to: string): string {
   return `${letter}${from} ${to}`
 }
 
+/** Rules-engine view of a UI position for the AI search. No en passant
+    target: the UI does not track it, so the AI never plays e.p. either. */
+function toRulesState(position: BoardPieces, turn: PieceColor): RulesState {
+  const board = new Map<string, Piece>()
+  for (const [notation, p] of Object.entries(position)) {
+    const type = (Object.keys(TYPE_TO_KIND) as PieceType[]).find(
+      (t) => TYPE_TO_KIND[t] === p.kind,
+    )!
+    board.set(keyOf(notationToAxial(notation)!), {
+      type,
+      color: p.color === 'white' ? 'w' : 'b',
+    })
+  }
+  return {
+    board,
+    turn: turn === 'white' ? 'w' : 'b',
+    epTarget: null,
+    halfmove: 0,
+    fullmove: 1,
+    history: [],
+  }
+}
+
 export function initialPieces(): BoardPieces {
   const map: BoardPieces = {}
   for (const [cell, piece] of STARTING_POSITION) {
@@ -95,6 +140,19 @@ export function initialPieces(): BoardPieces {
     }
   }
   return map
+}
+
+/** Convert a parsed FEN position into the notation-keyed UI board (T13). */
+function fenToPieces(pos: Position): BoardPieces {
+  const pieces: BoardPieces = {}
+  for (const [key, piece] of pos.board) {
+    const [q, r] = key.split(',').map(Number)
+    pieces[axialToNotation({ q, r })] = {
+      kind: TYPE_TO_KIND[piece.type],
+      color: COLOR_MAP[piece.color],
+    }
+  }
+  return pieces
 }
 
 interface GameState {
@@ -111,11 +169,11 @@ interface GameState {
   gameOver: GameOver | null
 }
 
-function freshState(): GameState {
-  const position = initialPieces()
+/** A fresh game state around an arbitrary starting position. */
+function stateFor(position: BoardPieces, turn: PieceColor): GameState {
   return {
     position,
-    turn: 'white',
+    turn,
     selected: null,
     validTargets: [],
     moves: [],
@@ -125,6 +183,10 @@ function freshState(): GameState {
     keyCounts: { [positionKey(position)]: 1 },
     gameOver: null,
   }
+}
+
+function freshState(): GameState {
+  return stateFor(initialPieces(), 'white')
 }
 
 /** Resolve end-of-game state after `next` was produced. */
@@ -137,13 +199,66 @@ function evaluate(next: GameState, rules: GameRules): GameOver | null {
 
 type GameAction =
   | { type: 'click'; notation: string; rules: GameRules }
-  | { type: 'undo' }
+  | {
+      type: 'move'
+      from: string
+      to: string
+      promotion?: PieceKind
+      rules: GameRules
+    }
+  | { type: 'undo'; pair: boolean }
   | { type: 'newGame' }
+  | { type: 'jumpTo'; ply: number }
+  | { type: 'loadPosition'; position: BoardPieces; turn: PieceColor }
+  | { type: 'resign' }
+  | { type: 'draw' }
 
 interface GameStore {
   game: GameState
   /** Snapshots of `game` before each applied move — the undo stack. */
   history: GameState[]
+  /** Move-list browse cursor: half-move shown, or null for the live game (T14). */
+  viewPly: number | null
+}
+
+/** Apply from→to (human or AI) and push the undo snapshot. */
+function play(
+  store: GameStore,
+  from: string,
+  to: string,
+  rules: GameRules,
+  promotion?: PieceKind,
+): GameStore {
+  const { game } = store
+  const moving = game.position[from]
+  if (!moving) return store
+  const target = game.position[to]
+  const position: BoardPieces = { ...game.position }
+  delete position[from]
+  // Human promotion choice is not wired yet; AI moves carry their promotion.
+  position[to] = promotion ? { ...moving, kind: promotion } : moving
+  const captured = { ...game.captured }
+  if (target) captured[target.color] += 1
+  const halfmove = moving.kind === 'pawn' || target ? 0 : game.halfmove + 1
+  const key = positionKey(position)
+  const game2: GameState = {
+    position,
+    turn: other(game.turn),
+    selected: null,
+    validTargets: [],
+    moves: [
+      ...game.moves,
+      { san: sanFor(moving, from, to), color: moving.color },
+    ],
+    captured,
+    halfmove,
+    lastMove: [from, to],
+    keyCounts: { ...game.keyCounts, [key]: (game.keyCounts[key] ?? 0) + 1 },
+    gameOver: null,
+  }
+  game2.gameOver = evaluate(game2, rules)
+  // A new move always drops the browse cursor back to the live game.
+  return { game: game2, history: [...store.history, game], viewPly: null }
 }
 
 function reducer(store: GameStore, action: GameAction): GameStore {
@@ -158,39 +273,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         game.selected !== action.notation &&
         game.validTargets.includes(action.notation)
       ) {
-        const from = game.selected
-        const moving = game.position[from]
-        if (!moving) return store
-        const target = game.position[action.notation]
-        const position: BoardPieces = { ...game.position }
-        delete position[from]
-        // Promotion handling arrives with the src/rules adapter (T4).
-        position[action.notation] = moving
-        const captured = { ...game.captured }
-        if (target) captured[target.color] += 1
-        const halfmove =
-          moving.kind === 'pawn' || target ? 0 : game.halfmove + 1
-        const key = positionKey(position)
-        const game2: GameState = {
-          position,
-          turn: other(game.turn),
-          selected: null,
-          validTargets: [],
-          moves: [
-            ...game.moves,
-            { san: sanFor(moving, from, action.notation), color: moving.color },
-          ],
-          captured,
-          halfmove,
-          lastMove: [from, action.notation],
-          keyCounts: {
-            ...game.keyCounts,
-            [key]: (game.keyCounts[key] ?? 0) + 1,
-          },
-          gameOver: null,
-        }
-        game2.gameOver = evaluate(game2, rules)
-        return { game: game2, history: [...store.history, game] }
+        return play(store, game.selected, action.notation, rules)
       }
       // Select / deselect own piece.
       if (game.position[action.notation]?.color === game.turn) {
@@ -211,14 +294,58 @@ function reducer(store: GameStore, action: GameAction): GameStore {
       }
       return store
     }
+    case 'move':
+      if (store.game.gameOver) return store
+      return play(store, action.from, action.to, action.rules, action.promotion)
     case 'undo': {
-      const history = store.history.slice(0, -1)
-      const last = store.history[store.history.length - 1]
+      // vs AI: also take back the AI reply so the human is to move again.
+      const n =
+        action.pair &&
+        store.history.length >= 2 &&
+        store.history[store.history.length - 1].turn === 'black'
+          ? 2
+          : 1
+      const last = store.history[store.history.length - n]
       if (!last) return store
-      return { game: { ...last, gameOver: null }, history }
+      return {
+        game: { ...last, gameOver: null },
+        history: store.history.slice(0, -n),
+        viewPly: null,
+      }
     }
     case 'newGame':
-      return { game: freshState(), history: [] }
+      return { game: freshState(), history: [], viewPly: null }
+    case 'jumpTo': {
+      const live = store.game.moves.length
+      return {
+        ...store,
+        viewPly: action.ply >= live ? null : Math.max(0, action.ply),
+      }
+    }
+    case 'loadPosition':
+      return {
+        game: stateFor(action.position, action.turn),
+        history: [],
+        viewPly: null,
+      }
+    case 'resign': {
+      // The side to move resigns; the opponent wins (T16).
+      const { game } = store
+      if (game.gameOver) return store
+      return {
+        ...store,
+        game: {
+          ...game,
+          gameOver: { kind: 'resign', winner: other(game.turn) },
+        },
+      }
+    }
+    case 'draw': {
+      // Hotseat: both players share the screen, so a draw offer is agreed at once.
+      const { game } = store
+      if (game.gameOver) return store
+      return { ...store, game: { ...game, gameOver: { kind: 'agreement' } } }
+    }
   }
 }
 
@@ -235,39 +362,120 @@ export interface UseGameResult {
   lastMove: [string, string] | null
   inCheckCell?: string
   canUndo: boolean
+  /** Half-move index currently viewed; equals `moves.length` when live (T14). */
+  viewPly: number
+  /** Black is played by the AI (White human vs Black AI). */
+  aiEnabled: boolean
+  /** AI is searching; board input is ignored meanwhile. */
+  aiThinking: boolean
+  /** AI search depth, 1–5, applied while `aiEnabled` (T15). */
+  aiDepth: number
+  toggleAi(): void
+  setAiDepth(depth: number): void
   clickCell(notation: string): void
   undo(): void
   newGame(): void
+  /** Jump the board view back to the position after `ply` half-moves (T14). */
+  jumpTo(ply: number): void
+  /** Load a FEN-like position into the live board; reports parse errors (T13). */
+  loadFen(text: string): { ok: true } | { ok: false; error: string }
+  /** The side to move resigns; the opponent wins (T16). */
+  resign(): void
+  /** Both players agree to a draw (T16). */
+  agreeDraw(): void
 }
 
 export function useGame(rules: GameRules = lenientRules): UseGameResult {
   const [store, dispatch] = useReducer(reducer, undefined, () => ({
     game: freshState(),
     history: [],
+    viewPly: null,
   }))
-  const { game, history } = store
+  const { game, history, viewPly } = store
+  const [aiEnabled, setAiEnabled] = useState(false)
+  const [aiDepth, setAiDepth] = useState(3)
+  const aiThinking = aiEnabled && game.turn === 'black' && !game.gameOver
 
-  const clickCell = (notation: string) =>
-    dispatch({ type: 'click', notation, rules })
-  const undo = () => dispatch({ type: 'undo' })
+  // Browse cursor (T14) lives in the store, so moves reset it in the reducer.
+  const timeline = useMemo(() => [...history, game], [history, game])
+  const livePly = game.moves.length
+  const shown = viewPly !== null && viewPly < livePly ? timeline[viewPly] : game
+  const browsing = shown !== game
+
+  useEffect(() => {
+    if (!aiThinking) return
+    // ponytail: search runs on the main thread; move it to a worker if a
+    // depth-5 search measurably freezes the UI.
+    const id = setTimeout(() => {
+      const { move } = bestMove(toRulesState(game.position, game.turn), {
+        depth: aiDepth,
+      })
+      if (!move) return
+      dispatch({
+        type: 'move',
+        from: axialToNotation(move.from),
+        to: axialToNotation(move.to),
+        promotion: move.promotion && TYPE_TO_KIND[move.promotion],
+        rules,
+      })
+    }, 0)
+    return () => clearTimeout(id)
+  }, [aiThinking, game, rules, aiDepth])
+
+  const clickCell = (notation: string) => {
+    // A board click while browsing returns to the live position first.
+    if (browsing) {
+      dispatch({ type: 'jumpTo', ply: livePly })
+      return
+    }
+    if (!aiThinking) dispatch({ type: 'click', notation, rules })
+  }
+  const undo = () => dispatch({ type: 'undo', pair: aiEnabled })
   const newGame = () => dispatch({ type: 'newGame' })
-  const inCheckCell = rules.inCheckCell?.(game.position, game.turn) ?? undefined
+  const jumpTo = (ply: number) => dispatch({ type: 'jumpTo', ply })
+  const loadFen = (
+    text: string,
+  ): { ok: true } | { ok: false; error: string } => {
+    try {
+      const parsed = parsePosition(text.trim())
+      dispatch({
+        type: 'loadPosition',
+        position: fenToPieces(parsed),
+        turn: COLOR_MAP[parsed.turn],
+      })
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: (error as Error).message }
+    }
+  }
+  const inCheckCell =
+    rules.inCheckCell?.(shown.position, shown.turn) ?? undefined
 
   return {
-    position: game.position,
-    turn: game.turn,
-    selected: game.selected,
-    validTargets: game.validTargets,
+    position: shown.position,
+    turn: shown.turn,
+    selected: shown.selected,
+    validTargets: shown.validTargets,
     moves: game.moves,
-    captured: game.captured,
-    halfmove: game.halfmove,
-    gameOver: game.gameOver,
-    lastMove: game.lastMove,
+    captured: shown.captured,
+    halfmove: shown.halfmove,
+    gameOver: shown.gameOver,
+    lastMove: shown.lastMove,
     inCheckCell,
     canUndo: history.length > 0,
+    viewPly: viewPly ?? livePly,
+    aiEnabled,
+    aiThinking,
+    aiDepth,
+    toggleAi: () => setAiEnabled((on) => !on),
+    setAiDepth: (depth) => setAiDepth(clampDepth(depth)),
     clickCell,
     undo,
     newGame,
+    jumpTo,
+    loadFen,
+    resign: () => dispatch({ type: 'resign' }),
+    agreeDraw: () => dispatch({ type: 'draw' }),
   }
 }
 
