@@ -9,7 +9,7 @@ import {
   type Piece,
   type PieceType,
 } from '../board/pieces'
-import type { GameState as RulesState } from '../rules/rules'
+import { movesFrom, type GameState as RulesState } from '../rules/rules'
 import { allCells, cellToFileRank } from './hexMath'
 import type { PieceColor, PieceKind } from './hexMath'
 
@@ -108,9 +108,18 @@ function positionKey(position: BoardPieces): string {
     .join('|')
 }
 
-function sanFor(piece: { kind: PieceKind }, from: string, to: string): string {
+function sanFor(
+  piece: { kind: PieceKind },
+  from: string,
+  to: string,
+  promotion?: PieceKind,
+): string {
   const letter = piece.kind === 'pawn' ? '' : KIND_TO_LETTER[piece.kind]
-  return `${letter}${from} ${to}`
+  // The engine only offers Q/R/B/N promotions, so 'pawn' can't reach here;
+  // the guard satisfies the KIND_TO_LETTER key type.
+  const promo =
+    promotion && promotion !== 'pawn' ? `=${KIND_TO_LETTER[promotion]}` : ''
+  return `${letter}${from} ${to}${promo}`
 }
 
 /** Rules-engine view of a UI position for the AI search. No en passant
@@ -134,6 +143,28 @@ function toRulesState(position: BoardPieces, turn: PieceColor): RulesState {
     fullmove: 1,
     history: [],
   }
+}
+
+/** Engine query: does the pawn on `from` reach the promotion zone at `to`?
+    Returns the offered kinds (engine order, deduped) or [] for ordinary or
+    non-legal arrivals, so the engine stays the single promotion authority (t45). */
+function promotionKinds(
+  position: BoardPieces,
+  turn: PieceColor,
+  from: string,
+  to: string,
+): PieceKind[] {
+  const fromAxial = notationToAxial(from)
+  const toAxial = notationToAxial(to)
+  if (!fromAxial || !toAxial) return []
+  const kinds: PieceKind[] = []
+  for (const move of movesFrom(toRulesState(position, turn), fromAxial)) {
+    if (move.to.q === toAxial.q && move.to.r === toAxial.r && move.promotion) {
+      const kind = TYPE_TO_KIND[move.promotion]
+      if (!kinds.includes(kind)) kinds.push(kind)
+    }
+  }
+  return kinds
 }
 
 export function initialPieces(): BoardPieces {
@@ -162,6 +193,17 @@ function fenToPieces(pos: Position): BoardPieces {
   return pieces
 }
 
+/** A pawn move onto the engine's promotion zone parked from the human's
+    second click until a piece kind is chosen (t45). */
+export interface PendingPromotion {
+  /** Origin cell of the pawn to promote. */
+  from: string
+  /** Destination cell on the engine's promotion zone. */
+  to: string
+  /** Kinds the engine offers, engine order (queen, rook, bishop, knight). */
+  options: PieceKind[]
+}
+
 interface GameState {
   position: BoardPieces
   turn: PieceColor
@@ -172,6 +214,8 @@ interface GameState {
   /** Halfmove clock: plies since the last pawn move or capture. */
   halfmove: number
   lastMove: [string, string] | null
+  /** Parked last-rank pawn move awaiting the human kind choice (t45). */
+  pendingPromotion: PendingPromotion | null
   keyCounts: Record<string, number>
   gameOver: GameOver | null
 }
@@ -187,6 +231,7 @@ function stateFor(position: BoardPieces, turn: PieceColor): GameState {
     captured: { white: 0, black: 0 },
     halfmove: 0,
     lastMove: null,
+    pendingPromotion: null,
     keyCounts: { [positionKey(position)]: 1 },
     gameOver: null,
   }
@@ -219,6 +264,8 @@ type GameAction =
   | { type: 'loadPosition'; position: BoardPieces; turn: PieceColor }
   | { type: 'resign' }
   | { type: 'draw' }
+  | { type: 'choosePromotion'; kind: PieceKind; rules: GameRules }
+  | { type: 'cancelPromotion' }
 
 interface GameStore {
   game: GameState
@@ -256,7 +303,7 @@ function play(
     moves: [
       ...game.moves,
       {
-        san: sanFor(moving, from, to),
+        san: sanFor(moving, from, to, promotion),
         color: moving.color,
         from,
         to,
@@ -266,12 +313,19 @@ function play(
     captured,
     halfmove,
     lastMove: [from, to],
+    // Any settled move ends a parked promotion (t45).
+    pendingPromotion: null,
     keyCounts: { ...game.keyCounts, [key]: (game.keyCounts[key] ?? 0) + 1 },
     gameOver: null,
   }
   game2.gameOver = evaluate(game2, rules)
-  // A new move always drops the browse cursor back to the live game.
-  return { game: game2, history: [...store.history, game], viewPly: null }
+  // A new move always drops the browse cursor back to the live game; undo
+  // snapshots never carry a parked promotion banner (t45).
+  return {
+    game: game2,
+    history: [...store.history, { ...game, pendingPromotion: null }],
+    viewPly: null,
+  }
 }
 
 function reducer(store: GameStore, action: GameAction): GameStore {
@@ -286,6 +340,28 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         game.selected !== action.notation &&
         game.validTargets.includes(action.notation)
       ) {
+        // A pawn arriving on the engine's promotion zone parks the move
+        // (t45): the banner goes up while selection stays highlighted, and
+        // choosePromotion completes it; ordinary arrivals play at once.
+        const options = promotionKinds(
+          game.position,
+          game.turn,
+          game.selected,
+          action.notation,
+        )
+        if (options.length > 0) {
+          return {
+            ...store,
+            game: {
+              ...game,
+              pendingPromotion: {
+                from: game.selected,
+                to: action.notation,
+                options,
+              },
+            },
+          }
+        }
         return play(store, game.selected, action.notation, rules)
       }
       // Select / deselect own piece.
@@ -293,7 +369,12 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         if (game.selected === action.notation) {
           return {
             ...store,
-            game: { ...game, selected: null, validTargets: [] },
+            game: {
+              ...game,
+              selected: null,
+              validTargets: [],
+              pendingPromotion: null,
+            },
           }
         }
         return {
@@ -301,6 +382,8 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           game: {
             ...game,
             selected: action.notation,
+            // Selecting another piece abandons any parked promotion (t45).
+            pendingPromotion: null,
             validTargets: rules.movesFor(game.position, action.notation),
           },
         }
@@ -310,6 +393,24 @@ function reducer(store: GameStore, action: GameAction): GameStore {
     case 'move':
       if (store.game.gameOver) return store
       return play(store, action.from, action.to, action.rules, action.promotion)
+    case 'choosePromotion': {
+      // Complete the parked promotion (t45); ignored without one or after
+      // the game has ended.
+      const pending = store.game.pendingPromotion
+      if (!pending || store.game.gameOver) return store
+      return play(store, pending.from, pending.to, action.rules, action.kind)
+    }
+    case 'cancelPromotion':
+      // Esc: deselect, no move, banner down (t45).
+      return {
+        ...store,
+        game: {
+          ...store.game,
+          selected: null,
+          validTargets: [],
+          pendingPromotion: null,
+        },
+      }
     case 'undo': {
       // vs AI: also take back the AI reply so the human is to move again.
       const n =
@@ -350,6 +451,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         game: {
           ...game,
           gameOver: { kind: 'resign', winner: other(game.turn) },
+          pendingPromotion: null,
         },
       }
     }
@@ -357,7 +459,14 @@ function reducer(store: GameStore, action: GameAction): GameStore {
       // Hotseat: both players share the screen, so a draw offer is agreed at once.
       const { game } = store
       if (game.gameOver) return store
-      return { ...store, game: { ...game, gameOver: { kind: 'agreement' } } }
+      return {
+        ...store,
+        game: {
+          ...game,
+          gameOver: { kind: 'agreement' },
+          pendingPromotion: null,
+        },
+      }
     }
   }
 }
@@ -388,6 +497,10 @@ export interface UseGameResult {
   clickCell(notation: string): void
   /** Apply a from→to move directly (remote-play sync); no-op if the game is over. */
   applyMove(from: string, to: string, promotion?: PieceKind): void
+  /** Parked last-rank pawn move awaiting the human kind choice, or null (t45). */
+  pendingPromotion: PendingPromotion | null
+  /** Complete the parked promotion move with the chosen piece kind (t45). */
+  choosePromotion(kind: PieceKind): void
   undo(): void
   newGame(): void
   /** Jump the board view back to the position after `ply` half-moves (T14). */
@@ -427,7 +540,9 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
         depth: aiDepth,
       })
       if (!move) return
-      const promotion = move.promotion ? TYPE_TO_KIND[move.promotion] : undefined
+      const promotion = move.promotion
+        ? TYPE_TO_KIND[move.promotion]
+        : undefined
       dispatch({
         type: 'move',
         from: axialToNotation(move.from),
@@ -438,6 +553,18 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     }, 0)
     return () => clearTimeout(id)
   }, [aiThinking, game, rules, aiDepth])
+
+  // Esc cancels a parked promotion (t45); window-level so it works wherever
+  // focus sits on the page.
+  const pendingPromotion = game.pendingPromotion
+  useEffect(() => {
+    if (!pendingPromotion) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') dispatch({ type: 'cancelPromotion' })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pendingPromotion])
 
   const clickCell = (notation: string) => {
     // A board click while browsing returns to the live position first.
@@ -455,6 +582,9 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
       rules,
       ...(promotion ? { promotion } : {}),
     })
+  // Completes a parked promotion with the human's chosen kind (t45).
+  const choosePromotion = (kind: PieceKind) =>
+    dispatch({ type: 'choosePromotion', kind, rules })
   const undo = () => dispatch({ type: 'undo', pair: aiEnabled })
   const newGame = () => dispatch({ type: 'newGame' })
   const jumpTo = (ply: number) => dispatch({ type: 'jumpTo', ply })
@@ -496,6 +626,8 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     setAiDepth: (depth) => setAiDepth(clampDepth(depth)),
     clickCell,
     applyMove,
+    pendingPromotion: game.pendingPromotion,
+    choosePromotion,
     undo,
     newGame,
     jumpTo,

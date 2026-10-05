@@ -13,6 +13,8 @@ import {
   type PieceKind,
 } from './hexMath'
 import { GlyphRects, PieceLegend } from './pieces/Piece'
+import { PromotionBanner } from './PromotionBanner'
+import type { PendingPromotion } from './useGame'
 import './theme.css'
 
 /** Pieces keyed by Gliński notation, e.g. { f1: { kind: 'king', color: 'white' } }. */
@@ -36,6 +38,10 @@ export interface HexBoardProps {
   lastMove?: [string, string] | undefined
   /** Cell of the king in check, outlined in alert red. */
   inCheckCell?: string | undefined
+  /** Parked last-rank pawn move; renders the kind-chooser banner (t45). */
+  promotion?: PendingPromotion | null
+  /** Completes the parked promotion with the chosen kind (t45). */
+  onPromotionChoose?: (kind: PieceKind) => void
 }
 
 /* Proper 3-colouring: every edge-neighbor shifts (q - r) by ±1. Index 0 is
@@ -81,6 +87,8 @@ export function HexBoard({
   validTargets = [],
   lastMove,
   inCheckCell,
+  promotion = null,
+  onPromotionChoose,
 }: HexBoardProps) {
   const corners = useMemo(() => cellCorners(size), [size])
   const lastMoveSet = useMemo(() => new Set(lastMove ?? []), [lastMove])
@@ -160,6 +168,14 @@ export function HexBoard({
           ))}
         </g>
       </svg>
+      {promotion ? (
+        <PromotionBanner
+          from={promotion.from}
+          to={promotion.to}
+          options={promotion.options}
+          onChoose={(kind) => onPromotionChoose?.(kind)}
+        />
+      ) : null}
       {legend ? <PieceLegend /> : null}
     </div>
   )

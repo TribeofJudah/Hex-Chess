@@ -1,7 +1,11 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, fireEvent, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { makeSocketFactory, welcomeMsg } from '../test/fakeSocket'
+import { glinskiRules } from '../rules/adapter'
 import { allCells, cellToFileRank } from './hexMath'
+import { PROTOCOL_VERSION } from './protocol'
 import { initialPieces, lenientRules, useGame, type GameRules } from './useGame'
+import { useRemoteGame } from './useRemoteGame'
 
 const NOTATIONS = allCells().map((cell) => {
   const { file, rank } = cellToFileRank(cell)
@@ -318,5 +322,110 @@ describe('useGame move-list jump (T14)', () => {
     // A board click returns to the live position.
     act(() => result.current.clickCell('a1'))
     expect(result.current.viewPly).toBe(2)
+  })
+})
+
+describe('useGame human promotion (t45)', () => {
+  // White pawn on e9, one push from e10 (file e's top cell, in the engine's
+  // promotion zone); a lone white king at f1 keeps the position legal.
+  const PROMO_FEN = '1/3/1P3/7/9/11/11/11/11/11/5K5 w - 0 1'
+
+  it('parks the move and raises pendingPromotion on a pawn-to-last-rank click', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    expect(result.current.pendingPromotion).toEqual({
+      from: 'e9',
+      to: 'e10',
+      options: ['queen', 'rook', 'bishop', 'knight'],
+    })
+    // Nothing moved yet; highlights stay up like a normal two-click.
+    expect(result.current.position.e9).toEqual({ kind: 'pawn', color: 'white' })
+    expect(result.current.moves).toEqual([])
+    expect(result.current.turn).toBe('white')
+    expect(result.current.selected).toBe('e9')
+    expect(result.current.validTargets).toContain('e10')
+  })
+
+  it('completes the parked move with the chosen kind', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    act(() => result.current.choosePromotion('rook'))
+    expect(result.current.pendingPromotion).toBeNull()
+    expect(result.current.position.e9).toBeUndefined()
+    expect(result.current.position.e10).toEqual({
+      kind: 'rook',
+      color: 'white',
+    })
+    expect(result.current.moves[0]).toEqual({
+      san: 'e9 e10=R',
+      color: 'white',
+      from: 'e9',
+      to: 'e10',
+      promotion: 'rook',
+    })
+    expect(result.current.turn).toBe('black')
+  })
+
+  it('cancels with Esc and lets normal play resume', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    expect(result.current.pendingPromotion).not.toBeNull()
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+    expect(result.current.pendingPromotion).toBeNull()
+    expect(result.current.selected).toBeNull()
+    expect(result.current.validTargets).toEqual([])
+    expect(result.current.position.e9).toEqual({ kind: 'pawn', color: 'white' })
+    expect(result.current.position.e10).toBeUndefined()
+    expect(result.current.moves).toEqual([])
+    // Play resumes normally after the cancel.
+    act(() => result.current.clickCell('f1'))
+    act(() => result.current.clickCell('g2'))
+    expect(result.current.moves[0]!.san).toBe('Kf1 g2')
+  })
+
+  it('never parks AI-style moves played with their promotion kind', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    // The AI and remote peers apply moves via the 'move' action with the
+    // promotion kind riding along — no banner for that path (t45).
+    act(() => result.current.applyMove('e9', 'e10', 'queen'))
+    expect(result.current.pendingPromotion).toBeNull()
+    expect(result.current.position.e10).toEqual({
+      kind: 'queen',
+      color: 'white',
+    })
+    expect(result.current.moves[0]?.promotion).toBe('queen')
+  })
+
+  it('streams the chosen kind to the room as the wire promotion', () => {
+    const factory = makeSocketFactory()
+    const { result } = renderHook(() =>
+      useRemoteGame('ROOM', { connect: factory.connect }),
+    )
+    act(() => factory.current().open())
+    act(() => factory.current().recv(welcomeMsg()))
+    // A solo welcome leaves the room 'waiting' — which is sendable
+    // (SENDABLE = ['waiting', 'playing']) — so the move will still stream.
+    expect(result.current.status).toBe('waiting')
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    act(() => result.current.choosePromotion('queen'))
+    expect(factory.current().last()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'move',
+      from: 'e9',
+      to: 'e10',
+      promotion: 'queen',
+      revision: 0,
+    })
   })
 })

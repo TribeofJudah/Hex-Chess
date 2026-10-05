@@ -76,6 +76,8 @@ function HotseatGame() {
             validTargets={game.validTargets}
             lastMove={game.lastMove ?? undefined}
             inCheckCell={game.inCheckCell}
+            promotion={game.pendingPromotion}
+            onPromotionChoose={game.choosePromotion}
           />
           {game.gameOver ? (
             <GameOverBanner

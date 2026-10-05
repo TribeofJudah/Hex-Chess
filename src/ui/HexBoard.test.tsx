@@ -102,4 +102,27 @@ describe('HexBoard interactivity', () => {
       'hxc-cell--check',
     )
   })
+
+  it('renders the promotion banner and forwards the chosen kind (t45)', () => {
+    const onChoose = vi.fn()
+    const { rerender } = render(<HexBoard legend={false} />)
+    expect(screen.queryByTestId('promotion-banner')).toBeNull()
+    rerender(
+      <HexBoard
+        legend={false}
+        promotion={{
+          from: 'e9',
+          to: 'e10',
+          options: ['queen', 'rook', 'bishop', 'knight'],
+        }}
+        onPromotionChoose={onChoose}
+      />,
+    )
+    expect(screen.getByTestId('promotion-banner')).toBeTruthy()
+    expect(screen.getByTestId('promo-queen')).toBeTruthy()
+    expect(screen.getByTestId('promo-knight')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('promo-rook'))
+    expect(onChoose).toHaveBeenCalledTimes(1)
+    expect(onChoose).toHaveBeenCalledWith('rook')
+  })
 })
