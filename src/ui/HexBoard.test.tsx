@@ -63,6 +63,19 @@ describe('HexBoard interactivity', () => {
     expect(interactive).toHaveLength(0)
   })
 
+  it('moves the roving focus with arrow keys and activates with Enter (T17)', () => {
+    const onCellClick = vi.fn()
+    render(<HexBoard onCellClick={onCellClick} legend={false} />)
+    expect(screen.getByTestId('cell-f6').getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(screen.getByTestId('cell-f6'), { key: 'ArrowRight' })
+    expect(screen.getByTestId('cell-g6').getAttribute('tabindex')).toBe('0')
+    expect(screen.getByTestId('cell-f6').getAttribute('tabindex')).toBe('-1')
+    fireEvent.keyDown(screen.getByTestId('cell-g6'), { key: 'ArrowUp' })
+    expect(screen.getByTestId('cell-g7').getAttribute('tabindex')).toBe('0')
+    fireEvent.keyDown(screen.getByTestId('cell-g7'), { key: 'Enter' })
+    expect(onCellClick).toHaveBeenCalledWith('g7')
+  })
+
   it('highlights selection, targets, last move, and check', () => {
     render(
       <HexBoard
