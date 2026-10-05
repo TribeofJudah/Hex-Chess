@@ -80,7 +80,10 @@ export class RoomDO {
         return // must join before any other frame
       }
       core.receive(conn, msg)
-      if (msg.type === 'move') this.persist(core)
+      // join/resync/ping never change room state; a move or a draw frame might.
+      if (msg.type !== 'join' && msg.type !== 'resync' && msg.type !== 'ping') {
+        this.persist(core)
+      }
     })
 
     server.addEventListener('close', () => {

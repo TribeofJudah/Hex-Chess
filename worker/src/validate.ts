@@ -16,12 +16,15 @@ import { axialEquals } from './board/axial'
 import { parsePosition, serializePosition } from './board/fen'
 import { notationToAxial } from './board/notation'
 import { keyOf, type PieceType } from './board/pieces'
-import type { PieceKind } from './protocol'
+import type { DrawMsg, PieceKind } from './protocol'
 import { applyMove, legalMoves, moveToSan, type GameState } from './rules/rules'
 
 /** The validateMove answer. Pure: `ok` is the caller's permission to mutate. */
 export type MoveVerdict =
   { ok: true; nextFen: string; san: string } | { ok: false; reason: string }
+
+/** The validateDraw answer (t48). Shape-only; see validateDraw. */
+export type DrawVerdict = { ok: true } | { ok: false; reason: string }
 
 /** Wire promotion kind → rules piece type, for matching generated moves. */
 const KIND_TO_TYPE: Record<PieceKind, PieceType> = {
@@ -95,4 +98,23 @@ export function validateMove(
     nextFen: serializePosition(next),
     san: moveToSan(state, legal),
   }
+}
+
+/**
+ * Structural check for the three draw-agreement frames (t48).
+ *
+ * Shape only: `code` must be a non-empty string and, for an `offerDraw`, `by`
+ * must name a real seat. There is no engine call — a draw has no legality
+ * beyond who may act, which is the room's job (RoomCore gates turn and seat
+ * from the connection, never from the wire `by`). A malformed payload answers
+ * `invalid_draw`, kept distinct from `invalid_move` on the wire.
+ */
+export function validateDraw(msg: DrawMsg): DrawVerdict {
+  if (typeof msg.code !== 'string' || msg.code.length === 0) {
+    return { ok: false, reason: 'missing room code' }
+  }
+  if (msg.type === 'offerDraw' && msg.by !== 'white' && msg.by !== 'black') {
+    return { ok: false, reason: `bad seat '${String(msg.by)}'` }
+  }
+  return { ok: true }
 }

@@ -1,6 +1,7 @@
 import {
   PROTOCOL_VERSION,
   type ClientMsg,
+  type DrawMsg,
   type MoveMsg,
   type Seat,
   type ServerMsg,
@@ -8,7 +9,7 @@ import {
 } from './protocol'
 import { serializePosition } from './board/fen'
 import { initialGame } from './rules/rules'
-import { validateMove } from './validate'
+import { validateDraw, validateMove } from './validate'
 
 /**
  * Pure room state machine (t41). No sockets, no timers, no Durable Object
@@ -26,6 +27,11 @@ import { validateMove } from './validate'
  * `snapshot()`/the constructor's `snapshot` option (t44) let the DO persist
  * this state and revive the room after eviction; the class itself stays
  * storage-agnostic.
+ *
+ * Draw agreement (t48): `offerDraw`/`acceptDraw`/`declineDraw` are pure state
+ * transitions returning a `DrawResult`; `receive` turns that into the wire
+ * frames. The room has one terminal state (an agreed draw) — checkmate and
+ * the other engine game-overs are not yet enforced here.
  */
 
 /**
@@ -39,16 +45,45 @@ function fenTurn(fen: string): 'white' | 'black' {
   return fen.split(' ')[1] === 'b' ? 'black' : 'white'
 }
 
+/** A refused draw action (t48), shared by the three draw methods. */
+function drawFail(reason: DrawReason): Extract<DrawResult, { ok: false }> {
+  return { ok: false, error: 'invalid_draw', reason }
+}
+
 /**
  * A room's durable state (t44): everything needed to revive the room in a
  * fresh Durable Object after eviction. Seats are deliberately NOT included —
  * they are live-connection state, re-derived on rejoin (see ROOM_PROTO §4).
+ * The draw fields are optional so a pre-t48 snapshot still hydrates.
  */
 export interface RoomSnapshot {
   fen: string
   moves: WireMove[]
   revision: number
+  /** An offer is open (t48). */
+  drawOffer?: 'idle' | 'awaiting'
+  /** Seat that owns the open offer, or null. */
+  drawBy?: Seat | null
+  /** A draw has been agreed; the room is terminal. */
+  ended?: boolean
 }
+
+/** Why a draw frame was refused (t48). */
+export type DrawReason = 'not_your_turn' | 'no_open_offer' | 'game_over'
+
+/**
+ * The draw-agreement return shape (t48), mirroring `MoveVerdict`: `ok` is the
+ * caller's permission to act. On success `drawOffer` is the room-level state
+ * after the call and `end` is present only when the room just ended.
+ */
+export type DrawResult =
+  | {
+      ok: true
+      drawOffer: 'offered' | 'awaiting' | 'idle'
+      by: Seat
+      end?: { reason: 'draw_agreement' }
+    }
+  | { ok: false; error: 'invalid_draw'; reason: DrawReason }
 
 /** A live client the room can send to. */
 export interface Conn {
@@ -73,6 +108,10 @@ export class RoomCore {
    * reclaims it and no second client is ever handed the same colour (t40 §4/§7).
    */
   private reserved = new Map<string, Seat>()
+  /** Draw agreement (t48): open offer, its owner, and the terminal flag. */
+  private drawOffer: 'idle' | 'awaiting' = 'idle'
+  private drawBy: Seat | null = null
+  private ended = false
 
   constructor(
     readonly room: string,
@@ -82,6 +121,9 @@ export class RoomCore {
       this.fen = snapshot.fen
       this.moves = snapshot.moves.slice()
       this.revision = snapshot.revision
+      this.drawOffer = snapshot.drawOffer ?? 'idle'
+      this.drawBy = snapshot.drawBy ?? null
+      this.ended = snapshot.ended ?? false
     }
   }
 
@@ -91,10 +133,21 @@ export class RoomCore {
   get currentRevision(): number {
     return this.revision
   }
+  /** Room-level draw state: `awaiting` iff an offer is open (t48). */
+  get drawOfferState(): 'idle' | 'awaiting' {
+    return this.drawOffer
+  }
 
   /** State a respawned DO hydrates from (t44) — the inverse of the constructor. */
   snapshot(): RoomSnapshot {
-    return { fen: this.fen, moves: this.moves.slice(), revision: this.revision }
+    return {
+      fen: this.fen,
+      moves: this.moves.slice(),
+      revision: this.revision,
+      drawOffer: this.drawOffer,
+      drawBy: this.drawBy,
+      ended: this.ended,
+    }
   }
 
   /** Route one already-decoded client frame. */
@@ -111,6 +164,11 @@ export class RoomCore {
         break
       case 'ping':
         conn.send({ v: PROTOCOL_VERSION, type: 'pong', t: msg.t })
+        break
+      case 'offerDraw':
+      case 'acceptDraw':
+      case 'declineDraw':
+        this.draw(conn, msg)
         break
     }
   }
@@ -206,6 +264,137 @@ export class RoomCore {
       by: conn.clientId,
       ...(move.promotion ? { promotion: move.promotion } : {}),
     })
+  }
+
+  /**
+   * Route one draw-agreement frame (t48). The acting seat comes from the live
+   * connection, never the wire `by`; the payload is only shape-checked. A
+   * refused frame is NACKed with `invalid_draw` and re-synced, like a move.
+   */
+  private draw(conn: Conn, msg: DrawMsg): void {
+    const check = validateDraw(msg)
+    if (!check.ok) {
+      this.nackDraw(conn, check.reason)
+      return
+    }
+    const seat = this.live.get(conn.clientId)?.seat ?? 'spectator'
+    const result =
+      msg.type === 'offerDraw'
+        ? this.offerDraw(seat)
+        : msg.type === 'acceptDraw'
+          ? this.acceptDraw(seat)
+          : this.declineDraw(seat)
+    if (!result.ok) {
+      this.nackDraw(conn, result.reason)
+      return
+    }
+    this.emitDraw(result)
+  }
+
+  /**
+   * Open a draw offer. Only the side to move may offer (chess etiquette); a
+   * second offer while one is open is an idempotent no-op.
+   */
+  offerDraw(by: Seat): DrawResult {
+    if (this.ended) return drawFail('game_over')
+    if (by === 'spectator' || by !== fenTurn(this.fen)) {
+      return drawFail('not_your_turn')
+    }
+    if (this.drawOffer === 'awaiting') {
+      return { ok: true, drawOffer: 'awaiting', by: this.drawBy ?? by }
+    }
+    this.drawOffer = 'awaiting'
+    this.drawBy = by
+    return { ok: true, drawOffer: 'awaiting', by }
+  }
+
+  /** Accept the open offer; the room ends. Only the opponent may accept. */
+  acceptDraw(by: Seat): DrawResult {
+    const open = this.openOfferFor(by)
+    if (!open.ok) return open
+    this.ended = true
+    this.drawOffer = 'idle'
+    this.drawBy = null
+    return {
+      ok: true,
+      drawOffer: 'idle',
+      by,
+      end: { reason: 'draw_agreement' },
+    }
+  }
+
+  /** Decline the open offer; the room returns to `idle`. Only the opponent may. */
+  declineDraw(by: Seat): DrawResult {
+    const open = this.openOfferFor(by)
+    if (!open.ok) return open
+    this.drawOffer = 'idle'
+    this.drawBy = null
+    return { ok: true, drawOffer: 'idle', by }
+  }
+
+  /** Shared guard for accept/decline: a terminal room or a non-opponent fails. */
+  private openOfferFor(
+    by: Seat,
+  ): Extract<DrawResult, { ok: false }> | { ok: true } {
+    if (this.ended) return drawFail('game_over')
+    if (by === 'spectator') return drawFail('not_your_turn')
+    // No offer open *to this seat*: none was made, or it is the offerer's own.
+    if (this.drawOffer !== 'awaiting' || by === this.drawBy) {
+      return drawFail('no_open_offer')
+    }
+    return { ok: true }
+  }
+
+  /** Send the frames a successful draw action produces. */
+  private emitDraw(result: Extract<DrawResult, { ok: true }>): void {
+    if (result.end) {
+      this.broadcastDrawOffer('idle', result.by) // clear the offer first
+      this.broadcast({
+        v: PROTOCOL_VERSION,
+        type: 'roomEnd',
+        code: this.room,
+        reason: result.end.reason,
+      })
+      return
+    }
+    if (result.drawOffer === 'awaiting') {
+      // Per seat: the offerer waits, everyone else may answer.
+      for (const c of this.live.values()) {
+        c.send({
+          v: PROTOCOL_VERSION,
+          type: 'drawOffer',
+          code: this.room,
+          state: c.seat === result.by ? 'awaiting' : 'offered',
+          by: result.by,
+        })
+      }
+      return
+    }
+    this.broadcastDrawOffer('idle', result.by)
+  }
+
+  private broadcastDrawOffer(
+    state: 'offered' | 'awaiting' | 'idle',
+    by: Seat,
+  ): void {
+    this.broadcast({
+      v: PROTOCOL_VERSION,
+      type: 'drawOffer',
+      code: this.room,
+      state,
+      by,
+    })
+  }
+
+  /** A rejected draw frame: NACK the sender, re-sync it, mutate nothing. */
+  private nackDraw(conn: Conn, message: string): void {
+    conn.send({
+      v: PROTOCOL_VERSION,
+      type: 'error',
+      code: 'invalid_draw',
+      message,
+    })
+    this.sendState(conn, 'invalid_draw')
   }
 
   /** A rejected move: NACK the sender, re-sync it, mutate nothing. */

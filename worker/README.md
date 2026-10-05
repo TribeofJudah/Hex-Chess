@@ -92,3 +92,29 @@ DO test would need `@cloudflare/vitest-pool-workers` (follow-up).
 Tests: `test/room.test.ts` "RoomCore persistence (t44)" — revive keeps code +
 revision + history, a revived room continues from the restored **position**
 (not just the list), and a revived room still rejects a stale move.
+
+## Draw agreement (t48)
+
+A draw by mutual agreement, server-side. Spec: `claudedocs/DRAW_PROTO.md`;
+wire shapes appended to `claudedocs/ROOM_PROTO.md` §9.
+
+- **Frames.** Client `offerDraw{code, by}` / `acceptDraw{code}` /
+  `declineDraw{code}`; server `drawOffer{code, state, by}` (delivered **per
+  seat**: the offerer sees `awaiting`, the opponent `offered`, and `idle`
+  clears) and the terminal `roomEnd{code, reason:'draw_agreement'}`.
+  Additive — `PROTOCOL_VERSION` is not bumped.
+- **Authority.** The acting seat is taken from the connection, never the wire
+  `by`. An offer must be on the offerer's own turn; only the opponent may
+  accept or decline. Refusals are `invalid_draw` (+ a `state` push) with a
+  reason in `not_your_turn | no_open_offer | game_over` — kept distinct from
+  `invalid_move`.
+- **State.** One open offer at a time; a second offer is an idempotent no-op.
+  No revoke (simpler path; see `DRAW_PROTO.md` §8). An agreed draw is the
+  room's only terminal state in v1.
+- **Code.** `RoomCore.offerDraw/acceptDraw/declineDraw` are pure transitions
+  returning `DrawResult`; `receive` turns that into frames. `validateDraw()`
+  (`src/validate.ts`) is the shape gate. `RoomSnapshot` now carries
+  `drawOffer`/`drawBy`/`ended`, so a revived room keeps its offer (t44).
+
+Tests: `test/draw.test.ts` — happy path, decline, cross-turn, no-offer /
+self-accept, spectator, game-over, revive, malformed payload.

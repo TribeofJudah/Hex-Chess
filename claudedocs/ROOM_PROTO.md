@@ -298,7 +298,39 @@ unless the server closes it).
 
 ### 8.3 explicit non-goals for v1
 
-- No clocks, no resign/draw over the wire yet (hotseat only).
+- No clocks, no resign over the wire yet (draw agreement landed in t48 — §9).
 - No `room_full`: spectators are allowed instead.
 - Seats are not persisted across DO eviction; a respawned room re-seats the
   first joiners (§4.7).
+
+---
+
+## 9. Draw agreement (t48)
+
+Server-side only; the client UI is Round 9. Full spec: `DRAW_PROTO.md`.
+
+A draw is agreed when one seat **offers** and the opponent **accepts**. The
+frames ride this same WebSocket and `PROTOCOL_VERSION` is unchanged (additive
+types). Three client messages are added — `offerDraw{code, by}`,
+`acceptDraw{code}`, `declineDraw{code}` — and two server messages —
+`drawOffer{code, state:'offered'|'awaiting'|'idle', by}` and
+`roomEnd{code, reason:'draw_agreement'}`.
+
+- **Authority.** The acting seat comes from the connection, never the wire
+  `by`. Only the offerer's own turn may open an offer; only the opponent may
+  accept or decline. A spectator is refused. All refusals are
+  `error{code:'invalid_draw', message: reason}` plus a fresh `state` push,
+  with `reason` in `not_your_turn | no_open_offer | game_over`.
+- **State.** The room holds one open offer (`awaiting`, owned by `by`); the
+  opponent sees it as `offered`. Accept broadcasts `roomEnd` and clears the
+  offer; decline broadcasts `drawOffer{state:'idle'}`. A second offer while
+  one is open is an idempotent no-op. There is **no revoke** (simpler path,
+  flagged in `DRAW_PROTO.md` §8).
+- **Persistence.** `RoomSnapshot` carries `drawOffer`, `drawBy` and `ended`
+  (§4), so a revived room keeps an open offer and resumes a terminal one.
+- **Terminal state.** An agreed draw is the room's only terminal state in v1;
+  checkmate / stalemate / 50-move are not yet enforced server-side.
+- **Validation.** `validateDraw()` (`worker/src/validate.ts`) shape-checks the
+  payload; `invalid_draw` is kept distinct from `invalid_move` on the wire.
+
+Tests: `worker/test/draw.test.ts` (see `DRAW_PROTO.md` §7).
