@@ -63,3 +63,32 @@ target, engine-serialize equality, hostile geometry, wrong-turn piece,
 promotion choice, malformed FEN / cell / empty origin) and `test/room.test.ts`
 (room behaviour: NACK without broadcast or revision bump, rejected-then-legal
 sequence stays consistent, seat gate, promotion broadcast).
+
+## Persistence (t44)
+
+A room outlives its Durable Object instance. `RoomCore` exposes
+`snapshot(): RoomSnapshot` (`{ fen, moves, revision }`) and its constructor
+takes an optional `RoomSnapshot` to hydrate from — the round-trip pair.
+`RoomDO` (src/index.ts) wires that to the object's own storage:
+
+- **Hydrate** — on first `fetch`, if `this.core` is unset, the DO reads the
+  `'room'` key and passes it to `new RoomCore(code, saved)`. A respawned object
+  therefore resumes with the same code, revision and move list.
+- **Persist** — after every `move` frame the DO writes `core.snapshot()` back
+  to `'room'`. The write is fire-and-forget (`void storage.put(...)`): DO
+  storage writes are coalesced and flushed before eviction, so awaiting would
+  only add latency. Non-mutating frames (`join`/`resync`/`ping`) skip the write.
+
+Seats are **not** persisted — they are live-connection state, re-derived from
+the first joiners on a respawn (see ROOM_PROTO §4.7). The snapshot lives in the
+DO's sqlite-backed storage (no extra binding needed —
+`new_sqlite_classes = ["RoomDO"]` in wrangler.toml).
+
+The DO wrapper itself is not unit-tested (the vitest suite runs on Node, with no
+`WebSocketPair`/workerd); its persistence get/put is covered by the `RoomCore`
+snapshot tests plus a `wrangler deploy --dry-run` bundle check. A full workerd
+DO test would need `@cloudflare/vitest-pool-workers` (follow-up).
+
+Tests: `test/room.test.ts` "RoomCore persistence (t44)" — revive keeps code +
+revision + history, a revived room continues from the restored **position**
+(not just the list), and a revived room still rejects a stale move.

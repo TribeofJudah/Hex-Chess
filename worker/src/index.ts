@@ -1,5 +1,5 @@
 import { PROTOCOL_VERSION, decodeClient, encode } from './protocol'
-import { RoomCore, type Conn } from './room'
+import { RoomCore, type Conn, type RoomSnapshot } from './room'
 
 /**
  * Worker entry + Durable Object adapter (t41).
@@ -7,7 +7,14 @@ import { RoomCore, type Conn } from './room'
  * The Worker routes `/room/<CODE>` WebSocket upgrades to the room's Durable
  * Object. The DO is a thin shell over the pure RoomCore in room.ts: it accepts
  * sockets, decodes frames, and forwards them; all room logic lives in RoomCore.
+ *
+ * Persistence (t44): the DO's storage holds one `RoomSnapshot`. A respawned
+ * object (after eviction) hydrates its RoomCore from it, so the room keeps its
+ * code and move history. Writes are fire-and-forget — DO storage is coalesced
+ * and flushed before eviction, so awaiting would only add latency.
  */
+
+const STORAGE_KEY = 'room'
 
 export interface Env {
   ROOMS: DurableObjectNamespace
@@ -32,10 +39,16 @@ export default {
 export class RoomDO {
   private core: RoomCore | null = null
 
+  constructor(private ctx: DurableObjectState) {}
+
   async fetch(req: Request): Promise<Response> {
     const path = new URL(req.url).pathname
     const code = (path.split('/').pop() ?? '').toUpperCase()
-    const core = (this.core ??= new RoomCore(code))
+    if (!this.core) {
+      const saved = await this.ctx.storage.get<RoomSnapshot>(STORAGE_KEY)
+      this.core = new RoomCore(code, saved)
+    }
+    const core = this.core
 
     const pair = new WebSocketPair()
     const client = pair[0]
@@ -67,6 +80,7 @@ export class RoomDO {
         return // must join before any other frame
       }
       core.receive(conn, msg)
+      if (msg.type === 'move') this.persist(core)
     })
 
     server.addEventListener('close', () => {
@@ -74,5 +88,10 @@ export class RoomDO {
     })
 
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  /** Write the room's state so an evicted DO resumes with history (t44). */
+  private persist(core: RoomCore): void {
+    void this.ctx.storage.put(STORAGE_KEY, core.snapshot())
   }
 }

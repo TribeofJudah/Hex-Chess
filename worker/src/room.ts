@@ -22,6 +22,10 @@ import { validateMove } from './validate'
  * room holds the authoritative FEN, advances it only on an ok verdict, and
  * NACKs an illegal, out-of-turn or mis-seated move with `invalid_move` —
  * a rejected frame is never broadcast.
+ *
+ * `snapshot()`/the constructor's `snapshot` option (t44) let the DO persist
+ * this state and revive the room after eviction; the class itself stays
+ * storage-agnostic.
  */
 
 /**
@@ -33,6 +37,17 @@ const INITIAL_FEN = serializePosition(initialGame())
 /** Side to move, from the FEN's second field (src/board/fen.ts format). */
 function fenTurn(fen: string): 'white' | 'black' {
   return fen.split(' ')[1] === 'b' ? 'black' : 'white'
+}
+
+/**
+ * A room's durable state (t44): everything needed to revive the room in a
+ * fresh Durable Object after eviction. Seats are deliberately NOT included —
+ * they are live-connection state, re-derived on rejoin (see ROOM_PROTO §4).
+ */
+export interface RoomSnapshot {
+  fen: string
+  moves: WireMove[]
+  revision: number
 }
 
 /** A live client the room can send to. */
@@ -61,9 +76,13 @@ export class RoomCore {
 
   constructor(
     readonly room: string,
-    fen?: string,
+    snapshot?: RoomSnapshot,
   ) {
-    if (fen !== undefined) this.fen = fen
+    if (snapshot) {
+      this.fen = snapshot.fen
+      this.moves = snapshot.moves.slice()
+      this.revision = snapshot.revision
+    }
   }
 
   get moveCount(): number {
@@ -71,6 +90,11 @@ export class RoomCore {
   }
   get currentRevision(): number {
     return this.revision
+  }
+
+  /** State a respawned DO hydrates from (t44) — the inverse of the constructor. */
+  snapshot(): RoomSnapshot {
+    return { fen: this.fen, moves: this.moves.slice(), revision: this.revision }
   }
 
   /** Route one already-decoded client frame. */

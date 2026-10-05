@@ -285,7 +285,11 @@ describe('RoomCore moves', () => {
 
 describe('RoomCore promotion', () => {
   it('accepts a promotion move from a seeded position and broadcasts the kind', () => {
-    const core = new RoomCore('ABCD', fenWithPawnAtA5())
+    const core = new RoomCore('ABCD', {
+      fen: fenWithPawnAtA5(),
+      moves: [],
+      revision: 0,
+    })
     const a = fakeConn('a')
     core.receive(a.conn, join('ABCD', a.conn))
 
@@ -313,6 +317,77 @@ describe('RoomCore promotion', () => {
       color: 'white',
       revision: 1,
     })
+  })
+})
+
+describe('RoomCore persistence (t44)', () => {
+  // Eviction = the DO is gone; a respawn hydrates a fresh RoomCore from the
+  // stored snapshot. The DO wrapper only gets/puts that snapshot, so the
+  // revive path is exercised here at the core the DO delegates to.
+  it('a snapshot revives the room with the same code, revision and history', () => {
+    const live = new RoomCore('ABCD')
+    const a = fakeConn('a')
+    const b = fakeConn('b')
+    live.receive(a.conn, join('ABCD', a.conn))
+    live.receive(b.conn, join('ABCD', b.conn))
+    live.receive(a.conn, move('b1', 'b2', 0))
+    live.receive(b.conn, move('b7', 'b6', 1))
+
+    const revived = new RoomCore('ABCD', live.snapshot())
+    expect(revived.currentRevision).toBe(2)
+    expect(revived.moveCount).toBe(2)
+
+    const c = fakeConn('c')
+    revived.receive(c.conn, join('ABCD', c.conn))
+    expect(c.find('welcome')).toMatchObject({
+      room: 'ABCD',
+      revision: 2,
+      moves: [
+        { from: 'b1', to: 'b2', ply: 1 },
+        { from: 'b7', to: 'b6', ply: 2 },
+      ],
+    })
+  })
+
+  it('a revived room continues from the restored position, not just the list', () => {
+    const live = new RoomCore('ABCD')
+    const a = fakeConn('a')
+    live.receive(a.conn, join('ABCD', a.conn))
+    live.receive(a.conn, move('b1', 'b2', 0)) // White moved; Black to play
+
+    const revived = new RoomCore('ABCD', live.snapshot())
+    const w = fakeConn('w')
+    const bl = fakeConn('b')
+    revived.receive(w.conn, join('ABCD', w.conn)) // reclaims white
+    revived.receive(bl.conn, join('ABCD', bl.conn)) // black
+    // Legal only if the FEN — not just the move list — was restored.
+    revived.receive(bl.conn, move('b7', 'b6', 1))
+    expect(bl.last()).toMatchObject({
+      type: 'move',
+      from: 'b7',
+      to: 'b6',
+      revision: 2,
+    })
+  })
+
+  it('a revived room still rejects a stale move', () => {
+    const live = new RoomCore('ABCD')
+    const a = fakeConn('a')
+    live.receive(a.conn, join('ABCD', a.conn))
+    live.receive(a.conn, move('b1', 'b2', 0)) // revision 1
+
+    const revived = new RoomCore('ABCD', live.snapshot())
+    const w = fakeConn('w')
+    const bl = fakeConn('b')
+    revived.receive(w.conn, join('ABCD', w.conn))
+    revived.receive(bl.conn, join('ABCD', bl.conn))
+    revived.receive(bl.conn, move('b7', 'b6', 1)) // revision 2
+    revived.receive(bl.conn, move('b6', 'b5', 1)) // stale
+    expect(bl.find('error')).toMatchObject({
+      type: 'error',
+      code: 'stale_move',
+    })
+    expect(revived.currentRevision).toBe(2)
   })
 })
 

@@ -20,8 +20,10 @@ share the same `useGame` state machine.
 - The connection is addressed by hash route `#/play/<CODE>` (see §4 for why a
   hash route and not a path).
 - Frames are **UTF-8 JSON text**; binary frames are not used.
-- The server never initiates; the client sends `join` first. A room exists only
-  while its Durable Object is alive (see §4 lifecycle, §8 `unknown_room`).
+- The server never initiates; the client sends `join` first. A room's state
+  outlives its Durable Object instance: the DO persists a snapshot to its own
+  storage and a respawned object hydrates from it (see §4 lifecycle, §8
+  `unknown_room`).
 - No TLS-terminating details here: the client derives `ws://` vs `wss://` from
   `window.location.protocol` in `defaultUrl()`.
 
@@ -130,15 +132,26 @@ A hostile or truncated frame therefore cannot crash the client — it is dropped
 5. **Leave / drop** — a closing socket frees its seat (unless the drop is a
    transient one being reclaimed within the grace window, §7) and broadcasts a
    new `peer`.
-6. **End** — the DO may evict when idle. There is no long-term persistence in
-   v1: an evicted room is gone and a later `join` starts an empty room (see
-   §8 `unknown_room`). The move list is authoritative only while the DO lives.
+6. **End / eviction (t44)** — the DO may evict when idle, but it persists one
+   `RoomSnapshot { fen, moves, revision }` to its storage after every accepted
+   move. A later `join` to the same code spawns a fresh DO that **hydrates** its
+   `RoomCore` from that snapshot, so the room resumes with the same code,
+   revision and move history. Persistence is per-room and has no TTL: a code
+   that has ever been played stays resumable.
+7. **Seats are not persisted.** Seat assignment is live-connection state: on a
+   respawn the seats are re-derived from the first joiners (first → `white`,
+   second → `black`), exactly as for a brand-new room. A reconnecting client
+   therefore reclaims its seat only while the DO instance that seated it is
+   alive; after an eviction the colours are re-assigned in arrival order.
 
 ```text
         join(white)              join(black)            close(black)
   ∅ ───────────────▶ {white} ───────────────▶ {white,black} ─────────▶ {white}
    welcome(white)    peer                welcome(black)   peer       peer
 ```
+
+Every accepted move is mirrored to DO storage, so this diagram replays on a
+respawned object from `{fen, moves, revision}` rather than from `∅`.
 
 ---
 
@@ -252,7 +265,7 @@ leave()".
 | `bad_message`      | frame failed structural validation     | `error` status, message shown           |
 | `invalid_move`     | move not legal for the side to move (§5)| server also pushes `state` → resync     |
 | `stale_move`       | `move.revision` behind server (§5)     | server also pushes `state` → resync     |
-| `unknown_room`     | join after DO eviction (§4)            | create fresh room / `error` status      |
+| `unknown_room`     | reserved (v1 hydrates the room instead) | create fresh room / `error` status      |
 | `internal`         | uncaught server fault                  | `error` status, message shown           |
 
 Non-`version_mismatch` codes set `status='error'` and surface `error.message`;
@@ -280,9 +293,12 @@ unless the server closes it).
 | clientId reclaims seat            | "reuses the same clientId across a reconnect…"   | "a known clientId reclaims its seat"         |
 | leave stops reconnecting          | "stays closed (no reconnect) after leave()"      | "close frees the seat and re-broadcasts peer"|
 | malformed frame ignored           | "ignores a malformed frame without crashing"     | "rejects an unparseable frame"               |
+| room survives eviction (t44)      | rebuild from welcome after respawn (§7)          | "a snapshot revives the room…"               |
+| revived room resumes position(t44)| —                                                | "a revived room continues from the restored…"|
 
 ### 8.3 explicit non-goals for v1
 
-- No persistence across DO eviction; no move history after the room dies.
 - No clocks, no resign/draw over the wire yet (hotseat only).
 - No `room_full`: spectators are allowed instead.
+- Seats are not persisted across DO eviction; a respawned room re-seats the
+  first joiners (§4.7).
