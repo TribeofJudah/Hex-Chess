@@ -171,3 +171,21 @@ All four post-MVP items in the brief are now landed:
 - PGN export for Gliński — done (t29 wiring + pgn.ts in 81fc367)
 
 Phase 3 is feature-complete pending merge of PR #2.
+
+## Round 3 — v0.1.1 SHIPPED 2026-10-05
+
+PR #2 merged at 2026-10-05T10:30:39Z (merge commit `60f61f0`). Dispatcher action chain:
+- Merged via `gh pr merge 2 --merge` (owner signal: "proceed, tasks have been completed")
+- CI on `main` run 37297039027 — success
+- Pages deploy run 37297039160 — success → live at https://tribeofjudah.github.io/Hex-Chess/
+- Tagged `v0.1.1` and pushed
+- Created GitHub Release at https://github.com/TribeofJudah/Hex-Chess/releases/tag/v0.1.1
+- Closed stale luvus tasks: t17, t18, t21, t22 (deleted per owner signal); t29 closed as done (closed incidentally in 81fc367)
+
+### Branch sync after merge
+- `origin/main` now at `60f61f0` (Merge PR #2), 9 commits ahead of the v0.1.0 baseline (`99e1c90`).
+- `origin/dev` was fast-forwarded to the same SHA via the merge.
+- Local checkout now on `main`.
+
+### Open
+- Phase 4 — only one Phase 3 item remained (remote play); it's complete. Phase 4 is undefined: the TASKLIST post-Round-3 backlog lists "remote play (account-less rooms), integration with a chess UI library, position-editor FEN round-trip smoke test in the deploy pipeline." Remote play needs a backend-of-choice decision; the other two are scoped and dispatchable. Awaiting owner direction.
