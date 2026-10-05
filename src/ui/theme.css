@@ -245,3 +245,79 @@
     gap: 8px;
   }
 }
+
+/* Move-list jump buttons (T14). */
+.hxc-movelist__move {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.hxc-movelist__move:hover:not(:disabled),
+.hxc-movelist__move[aria-current='true'] {
+  color: var(--color-accent);
+}
+
+.hxc-movelist__move:disabled {
+  cursor: default;
+}
+
+/* Position editor (T13). */
+.hxc-position {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.hxc-input {
+  flex: 1 1 320px;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-panel);
+  border: var(--border-chunky);
+  padding: 8px 10px;
+}
+
+.hxc-position__error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--alert);
+}
+
+/* AI depth selector (T15). */
+.hxc-depth {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-text);
+}
+
+.hxc-select {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--color-text);
+  background: var(--color-panel);
+  border: var(--border-chunky);
+  padding: 8px;
+  cursor: pointer;
+}
+
+.hxc-select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

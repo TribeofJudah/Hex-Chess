@@ -16,6 +16,10 @@ function bannerText(gameOver: GameOver): string {
       return 'Draw — fifty-move rule'
     case 'repetition':
       return 'Draw — threefold repetition'
+    case 'resign':
+      return `${gameOver.winner} wins — resignation`
+    case 'agreement':
+      return 'Draw — by agreement'
   }
 }
 

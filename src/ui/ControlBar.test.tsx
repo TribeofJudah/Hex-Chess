@@ -50,6 +50,59 @@ describe('ControlBar', () => {
     const disabled = screen
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('disabled'))
-    expect(disabled).toHaveLength(2) // New game + Undo
+    expect(disabled).toHaveLength(6) // New game, Undo, AI, Resign, Draw, Export PGN
+  })
+
+  it('fires the resign and draw handlers (T16)', () => {
+    const onResign = vi.fn()
+    const onOfferDraw = vi.fn()
+    render(
+      <ControlBar
+        scanlines
+        onToggleScanlines={() => {}}
+        onResign={onResign}
+        onOfferDraw={onOfferDraw}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Draw' }))
+    expect(onResign).toHaveBeenCalledTimes(1)
+    expect(onOfferDraw).toHaveBeenCalledTimes(1)
+  })
+
+  it('changes the AI depth from the selector (T15)', () => {
+    const onAiDepthChange = vi.fn()
+    render(
+      <ControlBar
+        scanlines
+        onToggleScanlines={() => {}}
+        aiDepth={3}
+        onAiDepthChange={onAiDepthChange}
+      />,
+    )
+    const select = screen.getByRole('combobox', { name: 'AI depth' })
+    expect((select as HTMLSelectElement).value).toBe('3')
+    fireEvent.change(select, { target: { value: '5' } })
+    expect(onAiDepthChange).toHaveBeenCalledWith(5)
+  })
+
+  it('toggles the AI and exports PGN', () => {
+    const onToggleAi = vi.fn()
+    const onExportPgn = vi.fn()
+    render(
+      <ControlBar
+        scanlines
+        onToggleScanlines={() => {}}
+        aiEnabled
+        onToggleAi={onToggleAi}
+        onExportPgn={onExportPgn}
+      />,
+    )
+    const ai = screen.getByRole('button', { name: 'AI on' })
+    expect(ai.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(ai)
+    fireEvent.click(screen.getByRole('button', { name: 'Export PGN' }))
+    expect(onToggleAi).toHaveBeenCalledTimes(1)
+    expect(onExportPgn).toHaveBeenCalledTimes(1)
   })
 })

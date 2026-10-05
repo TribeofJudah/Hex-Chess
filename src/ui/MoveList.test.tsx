@@ -1,5 +1,5 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { MoveList } from './MoveList'
 import type { GameMove } from './useGame'
 
@@ -33,5 +33,19 @@ describe('MoveList', () => {
     expect(screen.getByRole('status').textContent).toBe('Black to move')
     rerender(<MoveList moves={PAIRED} turn="white" />)
     expect(screen.getByRole('status').textContent).toBe('White to move')
+  })
+
+  it('jumps to a half-move when clicked and marks the viewed ply (T14)', () => {
+    const onJump = vi.fn()
+    render(<MoveList moves={PAIRED} turn="white" viewPly={2} onJump={onJump} />)
+    fireEvent.click(screen.getByRole('button', { name: 'g7 g5' }))
+    expect(onJump).toHaveBeenCalledWith(2)
+    expect(
+      screen
+        .getByRole('button', { name: 'g7 g5' })
+        .getAttribute('aria-current'),
+    ).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'f5 f7' }))
+    expect(onJump).toHaveBeenLastCalledWith(1)
   })
 })
