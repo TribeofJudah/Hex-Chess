@@ -150,3 +150,24 @@ The Round 3 commit is combined rather than five separate ones because `useGame.t
 **Stale-entry disposition:** t17/t18/t21/t22 remain queued with "STALE — work merged in <sha>" notes; deletion still awaiting owner approval.
 
 **Next up (dpp1):** open PR `dev → main` for v0.1.1 (AI + PGN + Round 3 UX + rendering fix) once owner signals.
+
+## Round 3 — v0.1.1 PR open 2026-10-05
+
+PR opened: https://github.com/TribeofJudah/Hex-Chess/pull/2 (`dev → main`)
+- 6 commits ahead of `main`: `5ab962f` (FEN), `8ab6f11` (AI), `2be783a` (renderer fix), `c528be6` (keyboard nav), `81fc367` (Round 3 UX), `bad4364` (TASKLIST docs).
+- 25 files changed, +1,504 / -87.
+- CI green on both rerun attempts after the c528be6 fixup (`238ba95`) removed an orphaned `boardBounds` import that ESLint caught.
+- **Awaiting owner approval to merge per RULES.md §5.** Pages is already wired to `main` so the next Pages build will go live automatically on merge.
+
+### Stale-entry cleanup (owner approval pending)
+- t17, t18, t21, t22 — STALE notes updated with merge-commit refs. Deletion needs §5 approval.
+- t29 — closed incidentally in `81fc367` (App.tsx wiring gap). Can be closed without owner action; keeping for audit trail unless told otherwise.
+
+### Phase 3 status
+All four post-MVP items in the brief are now landed:
+- AI opponent — done (t28 → 8ab6f11)
+- FEN-like serialization — done (t27 → 5ab962f)
+- Position editor — done (t30 → 81fc367)
+- PGN export for Gliński — done (t29 wiring + pgn.ts in 81fc367)
+
+Phase 3 is feature-complete pending merge of PR #2.
