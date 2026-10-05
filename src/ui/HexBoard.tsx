@@ -3,7 +3,6 @@ import { isValidCell } from '../board/axial'
 import { axialToNotation, notationToAxial } from '../board/notation'
 import {
   allCells,
-  boardBounds,
   cellCorners,
   cellCenter,
   cellPoints,
@@ -84,7 +83,6 @@ export function HexBoard({
   inCheckCell,
 }: HexBoardProps) {
   const corners = useMemo(() => cellCorners(size), [size])
-  const bounds = useMemo(() => boardBounds(size), [size])
   const lastMoveSet = useMemo(() => new Set(lastMove ?? []), [lastMove])
   const targetSet = useMemo(() => new Set(validTargets), [validTargets])
 
