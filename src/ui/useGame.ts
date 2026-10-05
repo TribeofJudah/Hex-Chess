@@ -32,6 +32,10 @@ export interface GameMove {
   /** SAN-style: 'f5 f7' (pawn) or 'Bf3 b1' (piece letter prefixed to origin). */
   san: string
   color: PieceColor
+  /** Origin and destination cells, kept for remote-play sync (T-remote-play). */
+  from: string
+  to: string
+  promotion?: PieceKind
 }
 
 /** Rules adapter. Legality and check/mate detection come from src/rules (T4);
@@ -248,7 +252,13 @@ function play(
     validTargets: [],
     moves: [
       ...game.moves,
-      { san: sanFor(moving, from, to), color: moving.color },
+      {
+        san: sanFor(moving, from, to),
+        color: moving.color,
+        from,
+        to,
+        ...(promotion ? { promotion } : {}),
+      },
     ],
     captured,
     halfmove,
@@ -373,6 +383,8 @@ export interface UseGameResult {
   toggleAi(): void
   setAiDepth(depth: number): void
   clickCell(notation: string): void
+  /** Apply a from→to move directly (remote-play sync); no-op if the game is over. */
+  applyMove(from: string, to: string, promotion?: PieceKind): void
   undo(): void
   newGame(): void
   /** Jump the board view back to the position after `ply` half-moves (T14). */
@@ -430,6 +442,14 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     }
     if (!aiThinking) dispatch({ type: 'click', notation, rules })
   }
+  const applyMove = (from: string, to: string, promotion?: PieceKind) =>
+    dispatch({
+      type: 'move',
+      from,
+      to,
+      rules,
+      ...(promotion ? { promotion } : {}),
+    })
   const undo = () => dispatch({ type: 'undo', pair: aiEnabled })
   const newGame = () => dispatch({ type: 'newGame' })
   const jumpTo = (ply: number) => dispatch({ type: 'jumpTo', ply })
@@ -470,6 +490,7 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     toggleAi: () => setAiEnabled((on) => !on),
     setAiDepth: (depth) => setAiDepth(clampDepth(depth)),
     clickCell,
+    applyMove,
     undo,
     newGame,
     jumpTo,

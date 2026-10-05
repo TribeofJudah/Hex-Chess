@@ -16,6 +16,8 @@ export interface ControlBarProps {
   /** Offer/agree a draw (T16). */
   onOfferDraw?: () => void
   onExportPgn?: () => void
+  /** Create a remote room and navigate to it (T-remote-play, t39). */
+  onCreateRoom?: () => void
 }
 
 const DEPTHS = [1, 2, 3, 4, 5] as const
@@ -33,6 +35,7 @@ export function ControlBar({
   onResign,
   onOfferDraw,
   onExportPgn,
+  onCreateRoom,
 }: ControlBarProps) {
   return (
     <div className="hxc-controls" role="toolbar" aria-label="Board controls">
@@ -101,6 +104,14 @@ export function ControlBar({
         disabled={!onExportPgn}
       >
         Export PGN
+      </button>
+      <button
+        type="button"
+        className="hxc-button"
+        onClick={onCreateRoom}
+        disabled={!onCreateRoom}
+      >
+        Play online
       </button>
       <button
         type="button"

@@ -4,8 +4,10 @@ import { ControlBar } from './ui/ControlBar'
 import { PositionEditor } from './ui/PositionEditor'
 import { MoveList } from './ui/MoveList'
 import { GameOverBanner } from './ui/GameOverBanner'
+import { RemoteRoom } from './ui/RemoteRoom'
 import { useGame, type GameOver } from './ui/useGame'
 import { downloadPgn, toPgn } from './ui/pgn'
+import { navigate, newRoomCode, useRoute } from './ui/router'
 import { glinskiRules } from './rules/adapter'
 
 function gameOverText(gameOver: GameOver): string {
@@ -21,7 +23,8 @@ function gameOverText(gameOver: GameOver): string {
     : 'Draw — threefold repetition'
 }
 
-export default function App() {
+/** Local hotseat (or vs-AI) game — the default route. */
+function HotseatGame() {
   const game = useGame(glinskiRules)
   const [scanlines, setScanlines] = useState(true)
 
@@ -49,6 +52,7 @@ export default function App() {
         onResign={game.resign}
         onOfferDraw={game.agreeDraw}
         onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
+        onCreateRoom={() => navigate({ name: 'play', roomCode: newRoomCode() })}
       />
 
       <PositionEditor onLoad={game.loadFen} />
@@ -93,4 +97,18 @@ export default function App() {
       </footer>
     </main>
   )
+}
+
+export default function App() {
+  const route = useRoute()
+  if (route.name === 'play') {
+    return (
+      <RemoteRoom
+        key={route.roomCode}
+        roomCode={route.roomCode}
+        onExit={() => navigate({ name: 'game' })}
+      />
+    )
+  }
+  return <HotseatGame />
 }

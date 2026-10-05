@@ -3,9 +3,9 @@ import { pgnResult, toPgn } from './pgn'
 import type { GameMove } from './useGame'
 
 const moves: GameMove[] = [
-  { san: 'f5 f6', color: 'white' },
-  { san: 'f7 f6', color: 'black' },
-  { san: 'Qe1 c3', color: 'white' },
+  { san: 'f5 f6', color: 'white', from: 'f5', to: 'f6' },
+  { san: 'f7 f6', color: 'black', from: 'f7', to: 'f6' },
+  { san: 'Qe1 c3', color: 'white', from: 'e1', to: 'c3' },
 ]
 
 describe('pgn', () => {

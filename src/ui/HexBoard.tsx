@@ -29,13 +29,13 @@ export interface HexBoardProps {
   /** Click/tap + keyboard-activation handler for a cell. */
   onCellClick?: (notation: string) => void
   /** Currently selected cell, highlighted with an accent ring. */
-  selectedCell?: string
+  selectedCell?: string | undefined
   /** Cells (notation) to mark as legal destinations. */
   validTargets?: string[]
   /** Origin and destination of the last move, outlined in amber. */
-  lastMove?: [string, string]
+  lastMove?: [string, string] | undefined
   /** Cell of the king in check, outlined in alert red. */
-  inCheckCell?: string
+  inCheckCell?: string | undefined
 }
 
 /* Proper 3-colouring: every edge-neighbor shifts (q - r) by ±1. Index 0 is

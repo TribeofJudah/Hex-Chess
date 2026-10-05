@@ -4,9 +4,9 @@ import { MoveList } from './MoveList'
 import type { GameMove } from './useGame'
 
 const PAIRED: GameMove[] = [
-  { san: 'f5 f7', color: 'white' },
-  { san: 'g7 g5', color: 'black' },
-  { san: 'Bf3 b1', color: 'white' },
+  { san: 'f5 f7', color: 'white', from: 'f5', to: 'f7' },
+  { san: 'g7 g5', color: 'black', from: 'g7', to: 'g5' },
+  { san: 'Bf3 b1', color: 'white', from: 'f3', to: 'b1' },
 ]
 
 describe('MoveList', () => {

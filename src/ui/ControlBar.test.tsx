@@ -50,7 +50,7 @@ describe('ControlBar', () => {
     const disabled = screen
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('disabled'))
-    expect(disabled).toHaveLength(6) // New game, Undo, AI, Resign, Draw, Export PGN
+    expect(disabled).toHaveLength(7) // New game, Undo, AI, Resign, Draw, Export PGN, Play online
   })
 
   it('fires the resign and draw handlers (T16)', () => {

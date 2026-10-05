@@ -321,3 +321,39 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* --- Remote play room (t39) --------------------------------------------- */
+.hxc-room__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  font-size: 0.7rem;
+}
+.hxc-room__code {
+  letter-spacing: 0.15em;
+  color: #ffd166;
+}
+.hxc-room__spacer {
+  flex: 1;
+}
+.hxc-room__dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: #888;
+  flex: none;
+}
+.hxc-room__dot--playing {
+  background: #4ade80;
+}
+.hxc-room__dot--waiting,
+.hxc-room__dot--connecting,
+.hxc-room__dot--reconnecting {
+  background: #fbbf24;
+}
+.hxc-room__dot--version-mismatch,
+.hxc-room__dot--error,
+.hxc-room__dot--closed {
+  background: #f87171;
+}

@@ -74,7 +74,12 @@ describe('useGame', () => {
     expect(result.current.position.f6).toEqual({ kind: 'king', color: 'white' })
     expect(result.current.position.g1).toBeUndefined()
     expect(result.current.turn).toBe('black')
-    expect(result.current.moves[0]).toEqual({ san: 'Kg1 f6', color: 'white' })
+    expect(result.current.moves[0]).toEqual({
+      san: 'Kg1 f6',
+      color: 'white',
+      from: 'g1',
+      to: 'f6',
+    })
     expect(result.current.lastMove).toEqual(['g1', 'f6'])
     expect(result.current.canUndo).toBe(true)
   })
