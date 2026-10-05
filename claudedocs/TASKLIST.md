@@ -189,3 +189,64 @@ PR #2 merged at 2026-10-05T10:30:39Z (merge commit `60f61f0`). Dispatcher action
 
 ### Open
 - Phase 4 — only one Phase 3 item remained (remote play); it's complete. Phase 4 is undefined: the TASKLIST post-Round-3 backlog lists "remote play (account-less rooms), integration with a chess UI library, position-editor FEN round-trip smoke test in the deploy pipeline." Remote play needs a backend-of-choice decision; the other two are scoped and dispatchable. Awaiting owner direction.
+
+## Round 7 — t44 DO persistence + t45 client-side human promotion — 2026-10-05
+
+Dispatcher: dpp1 (claude, pane 38). Workers: spp2 (pane 49, deepseek-v4-flash:cloud)
++ dvv (pane 50, glm-5.3-flash:cloud), parallel on the same checkout with disjoint
+fences.
+
+Two commits landed on `dev`:
+
+| sha | scope |
+| --- | ----- |
+| `9f782fd` | round7(do-persist): RoomDO hydrates from DO storage and snapshots after every move (t44) |
+| `651ffca` | round7(client-promotion): human pawn-to-last-rank surfaces a Q/R/B/N banner (t45) |
+
+`dev` is now 6 commits ahead of `origin/dev` (Rounds 4, 5, 6, 7). Standing gates:
+root tests 189/189, worker tests 34/34, root tsc -b 0, lint 0, build ok, FEN smoke 8/8.
+
+### Fences and out-of-fence (dispatcher-approved)
+- `spp2 / t44`: `worker/**` only. No out-of-fence writes.
+- `dvv / t45`: `src/ui/**` + `claudedocs/PROMOTION_UI.md`. Out-of-fence: `src/App.tsx`
+  (+2, mounting `PromotionBanner`) and `src/ui/RemoteRoom.tsx` (+2, threading
+  `promotion` through `useRemoteGame.sendMove`'s existing third arg). Trivial wiring.
+
+### Decisions worth flagging for review (full report in `claudedocs/ROUND7_REPORT.md`)
+- **t44 — seats are NOT persisted.** `RoomCore.snapshot()` captures
+  `{code, fen, moves, revision}` only; seats are live-connection state and are
+  re-derived from arrival order on respawn. A reconnecting client reclaims
+  its seat only while the original DO instance is alive; after eviction,
+  colours are re-issued in join order. Persisting seats would let a
+  never-returning client hold a colour forever — flagged in `ROOM_PROTO.md`
+  §4.7. ~3 lines + a guard test to add if seats should persist.
+- **t44 — snapshot is fire-on-move, not bucketed/debounced/timed.** `revision`
+  advances only on an accepted move, so the write set is the same in every
+  flavour. `void storage.put(...)` on the write path — DO storage coalesces
+  and flushes before eviction.
+- **t45 — engine-authoritative promotion detection.** `pendingPromotion` is
+  set when `movesFrom()` emits a promotion candidate; the UI does NOT
+  duplicate the last-rank rule. Works for both colours, never parks
+  engine-illegal arrivals.
+- **t45 — AI moves do NOT prompt the banner.** AI moves already carry their
+  own `promotion` kind from the rules engine and pass through silently.
+  Only the human path parks for the banner.
+
+### Deferred (logged in `ROUND7_REPORT.md`)
+- DO wrapper is not driven in a worker tier test pool. `@cloudflare/vitest-pool-workers`
+  is the missing dep. Snapshot path is proven at the `RoomCore` level +
+  wrangler dry-run bundle. Non-blocking.
+- Reconnect UX polish (toast / spinner) is `useRemoteGame`'s concern, not
+  the DO. Out of scope.
+
+### Stale-entry disposition
+- t44, t45: `done`.
+- Previous luvus stale tasks unchanged. Owner-approval deletion pending.
+
+### Next up (dpp1)
+- Open `dev → main` PR for **v0.1.3** (this round + Round 6 server-validate work,
+  previously unmerged). Pages deploys on merge. **Requires owner approval per RULES.md §5.**
+- Round 8 candidate dispatch: see `ROUND7_REPORT.md` "Next up" section for the four
+  options and their fences. Recommended: t46 (CI deploy pipeline, small config-only)
+  + t49 (dispatcher-only doc follow-up). Both fit the disjoint-fence pattern
+  and add measurable value.
