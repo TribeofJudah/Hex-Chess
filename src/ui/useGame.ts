@@ -101,7 +101,10 @@ function clampDepth(depth: number): number {
 function positionKey(position: BoardPieces): string {
   return Object.keys(position)
     .sort()
-    .map((n) => `${n}:${position[n].color[0]}${position[n].kind[0]}`)
+    .map((n) => {
+      const p = position[n]!
+      return `${n}:${p.color[0]}${p.kind[0]}`
+    })
     .join('|')
 }
 
@@ -136,7 +139,7 @@ function toRulesState(position: BoardPieces, turn: PieceColor): RulesState {
 export function initialPieces(): BoardPieces {
   const map: BoardPieces = {}
   for (const [cell, piece] of STARTING_POSITION) {
-    const [q, r] = cell.split(',').map(Number)
+    const [q, r] = cell.split(',').map(Number) as [number, number]
     const { file, rank } = cellToFileRank({ q, r, s: -q - r })
     map[`${file}${rank}`] = {
       kind: TYPE_TO_KIND[piece.type],
@@ -150,7 +153,7 @@ export function initialPieces(): BoardPieces {
 function fenToPieces(pos: Position): BoardPieces {
   const pieces: BoardPieces = {}
   for (const [key, piece] of pos.board) {
-    const [q, r] = key.split(',').map(Number)
+    const [q, r] = key.split(',').map(Number) as [number, number]
     pieces[axialToNotation({ q, r })] = {
       kind: TYPE_TO_KIND[piece.type],
       color: COLOR_MAP[piece.color],
@@ -312,7 +315,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
       const n =
         action.pair &&
         store.history.length >= 2 &&
-        store.history[store.history.length - 1].turn === 'black'
+        store.history[store.history.length - 1]!.turn === 'black'
           ? 2
           : 1
       const last = store.history[store.history.length - n]
@@ -370,7 +373,7 @@ export interface UseGameResult {
   halfmove: number
   gameOver: GameOver | null
   lastMove: [string, string] | null
-  inCheckCell?: string
+  inCheckCell?: string | undefined
   canUndo: boolean
   /** Half-move index currently viewed; equals `moves.length` when live (T14). */
   viewPly: number
@@ -411,7 +414,8 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
   // Browse cursor (T14) lives in the store, so moves reset it in the reducer.
   const timeline = useMemo(() => [...history, game], [history, game])
   const livePly = game.moves.length
-  const shown = viewPly !== null && viewPly < livePly ? timeline[viewPly] : game
+  const shown =
+    viewPly !== null && viewPly < livePly ? (timeline[viewPly] ?? game) : game
   const browsing = shown !== game
 
   useEffect(() => {
@@ -423,12 +427,13 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
         depth: aiDepth,
       })
       if (!move) return
+      const promotion = move.promotion ? TYPE_TO_KIND[move.promotion] : undefined
       dispatch({
         type: 'move',
         from: axialToNotation(move.from),
         to: axialToNotation(move.to),
-        promotion: move.promotion && TYPE_TO_KIND[move.promotion],
         rules,
+        ...(promotion ? { promotion } : {}),
       })
     }, 0)
     return () => clearTimeout(id)

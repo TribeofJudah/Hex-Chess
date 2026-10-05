@@ -9,7 +9,7 @@ const NOTATIONS = allCells().map((cell) => {
 })
 
 function cellOf(
-  hook: ReturnType<typeof renderHook<ReturnType<typeof useGame>, unknown>>,
+  hook: { result: { current: Game } },
   color: 'white' | 'black',
 ): string {
   const entries = Object.entries(hook.result.current.position)
@@ -88,9 +88,9 @@ describe('useGame', () => {
     const { result } = renderHook(() => useGame())
     move({ result }, 'b1', 'b2')
     move({ result }, 'b7', 'b6')
-    expect(result.current.moves[0].san).toBe('b1 b2')
-    expect(result.current.moves[1].san).toBe('b7 b6')
-    expect(result.current.moves[1].color).toBe('black')
+    expect(result.current.moves[0]!.san).toBe('b1 b2')
+    expect(result.current.moves[1]!.san).toBe('b7 b6')
+    expect(result.current.moves[1]!.color).toBe('black')
     expect(result.current.turn).toBe('white')
   })
 
@@ -217,10 +217,10 @@ describe('useGame vs AI', () => {
       act(() => vi.runAllTimers())
       const { moves, turn, lastMove, aiThinking } = hook.result.current
       expect(moves).toHaveLength(2)
-      expect(moves[1].color).toBe('black')
+      expect(moves[1]!.color).toBe('black')
       expect(turn).toBe('white')
       expect(aiThinking).toBe(false)
-      expect(hook.result.current.position[lastMove![1]].color).toBe('black')
+      expect(hook.result.current.position[lastMove![1]]!.color).toBe('black')
 
       act(() => hook.result.current.undo())
       expect(hook.result.current.moves).toEqual([])

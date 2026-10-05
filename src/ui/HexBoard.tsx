@@ -125,7 +125,7 @@ export function HexBoard({
         <g>
           {[...NOTATIONS.values()].map(({ cell, notation }) => {
             const center = cellCenter(cell, size)
-            const tint = (((cell.q - cell.r) % 3) + 3) % 3
+            const tint = ((((cell.q - cell.r) % 3) + 3) % 3) as 0 | 1 | 2
             const classes = ['hxc-cell']
             if (notation === selectedCell) classes.push('hxc-cell--selected')
             if (lastMoveSet.has(notation)) classes.push('hxc-cell--last')
@@ -185,8 +185,8 @@ function CellPolygon({
   strokeWidth: number
   interactive: boolean
   tabIndex: number
-  onSelect?: (notation: string) => void
-  onKeyDown?: (notation: string, event: KeyboardEvent) => void
+  onSelect?: ((notation: string) => void) | undefined
+  onKeyDown?: ((notation: string, event: KeyboardEvent) => void) | undefined
 }) {
   const select = () => onSelect?.(notation)
   return (

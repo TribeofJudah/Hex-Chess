@@ -98,7 +98,7 @@ export function bestMove(
     }
   }
 
-  let best: Move = moves[0]
+  let best: Move = moves[0]!
   let alpha = -Infinity
   for (const m of order(root, shuffle(moves, seed))) {
     const score = -negamax(
@@ -136,7 +136,9 @@ function shuffle<T>(items: T[], seed: number): T[] {
   const out = [...items]
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1))
-    ;[out[i], out[j]] = [out[j], out[i]]
+    const tmp = out[i]!
+    out[i] = out[j]!
+    out[j] = tmp
   }
   return out
 }

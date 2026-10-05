@@ -19,7 +19,7 @@ import { isValidCell, mirrorCell, type Axial } from './axial'
 export const FILE_LETTERS = 'abcdefghikl'
 
 const FILE_INDEX: Record<string, number> = {}
-for (let i = 0; i < FILE_LETTERS.length; i++) FILE_INDEX[FILE_LETTERS[i]] = i
+for (let i = 0; i < FILE_LETTERS.length; i++) FILE_INDEX[FILE_LETTERS[i]!] = i
 
 /** Inclusive file-index bounds per rank (derived from the hexagon shape). */
 const RANK_BOUNDS: Record<number, [number, number]> = {
@@ -44,7 +44,7 @@ export const RANK_CELL_COUNTS: readonly number[] = [
 export function isValidNotation(notation: string): boolean {
   const m = /^([a-ikl])(\d{1,2})$/.exec(notation)
   if (!m) return false
-  const file = FILE_INDEX[m[1]]
+  const file = FILE_INDEX[m[1]!]
   const rank = Number(m[2])
   if (file === undefined) return false
   const bounds = RANK_BOUNDS[rank]
@@ -54,7 +54,8 @@ export function isValidNotation(notation: string): boolean {
 /** Parse "f6"-style notation to axial coords with f6 at (0, 0). */
 export function notationToAxial(notation: string): Axial | null {
   if (!isValidNotation(notation)) return null
-  const fileIndex = FILE_INDEX[notation[0]]
+  const fileIndex = FILE_INDEX[notation[0]!]
+  if (fileIndex === undefined) return null
   const rank = Number(notation.slice(1))
   const df = fileIndex - 5
   const axial: Axial = { q: df, r: rank - 6 - Math.min(df, 0) }

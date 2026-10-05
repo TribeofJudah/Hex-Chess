@@ -25,8 +25,8 @@ export function toPgn(
     '',
   ]
   for (let i = 0; i < moves.length; i += 2) {
-    const black = moves[i + 1] ? ` ${moves[i + 1].san}` : ''
-    lines.push(`${i / 2 + 1}. ${moves[i].san}${black}`)
+    const black = moves[i + 1]
+    lines.push(`${i / 2 + 1}. ${moves[i]!.san}${black ? ` ${black.san}` : ''}`)
   }
   lines.push(result, '')
   return lines.join('\n')

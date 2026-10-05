@@ -15,12 +15,12 @@ describe('MoveList', () => {
     const list = screen.getByTestId('move-list')
     const rows = within(list).getAllByRole('listitem')
     expect(rows).toHaveLength(2)
-    expect(rows[0].textContent).toContain('1.')
-    expect(rows[0].textContent).toContain('f5 f7')
-    expect(rows[0].textContent).toContain('g7 g5')
-    expect(rows[1].textContent).toContain('2.')
-    expect(rows[1].textContent).toContain('Bf3 b1')
-    expect(rows[1].textContent).toContain('…') // black reply pending
+    expect(rows[0]!.textContent).toContain('1.')
+    expect(rows[0]!.textContent).toContain('f5 f7')
+    expect(rows[0]!.textContent).toContain('g7 g5')
+    expect(rows[1]!.textContent).toContain('2.')
+    expect(rows[1]!.textContent).toContain('Bf3 b1')
+    expect(rows[1]!.textContent).toContain('…') // black reply pending
   })
 
   it('shows an empty state before the first move', () => {
