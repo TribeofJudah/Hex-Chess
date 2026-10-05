@@ -20,6 +20,7 @@ export type ErrCode =
   | 'version_mismatch'
   | 'room_full'
   | 'bad_message'
+  | 'invalid_move'
   | 'stale_move'
   | 'unknown_room'
   | 'internal'
@@ -28,6 +29,7 @@ export const ERROR_CODES: readonly ErrCode[] = [
   'version_mismatch',
   'room_full',
   'bad_message',
+  'invalid_move',
   'stale_move',
   'unknown_room',
   'internal',

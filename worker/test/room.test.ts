@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest'
+import { parsePosition, serializePosition } from '../src/board/fen'
+import { notationToAxial } from '../src/board/notation'
+import { keyOf } from '../src/board/pieces'
 import type { ClientMsg, ServerMsg } from '../src/protocol'
 import { RoomCore, type Conn } from '../src/room'
+
+const START_FEN =
+  'b/qbk/n1b1n/r5r/ppppppppp/11/5P5/4P1P4/3P1B1P3/2P2B2P2/1PRNQBKNRP1 w - 0 1'
+
+/** Start position with the b1 pawn relocated to a5, one step from the a6
+    promotion zone (Gliński promotions land on the top cell of the file). */
+function fenWithPawnAtA5(): string {
+  const board = new Map(parsePosition(START_FEN).board)
+  board.delete(keyOf(notationToAxial('b1')!))
+  board.set(keyOf(notationToAxial('a5')!), { type: 'P', color: 'w' })
+  return serializePosition({
+    board,
+    turn: 'w',
+    epTarget: null,
+    halfmove: 0,
+    fullmove: 1,
+  })
+}
 
 function fakeConn(clientId: string, protocol = 1) {
   const sent: ServerMsg[] = []
@@ -105,6 +126,7 @@ describe('RoomCore seating', () => {
 })
 
 describe('RoomCore moves', () => {
+  // b1→b2 (White pawn push) and b7→b6 (Black reply) are legal from the start.
   it('accepts a move and broadcasts it with ply, revision and colour', () => {
     const core = new RoomCore('ABCD')
     const a = fakeConn('a')
@@ -112,11 +134,11 @@ describe('RoomCore moves', () => {
     core.receive(a.conn, join('ABCD', a.conn))
     core.receive(b.conn, join('ABCD', b.conn))
 
-    core.receive(a.conn, move('g1', 'f6', 0))
+    core.receive(a.conn, move('b1', 'b2', 0))
     const frame = {
       type: 'move',
-      from: 'g1',
-      to: 'f6',
+      from: 'b1',
+      to: 'b2',
       ply: 1,
       revision: 1,
       color: 'white',
@@ -124,21 +146,79 @@ describe('RoomCore moves', () => {
     }
     expect(a.last()).toMatchObject(frame) // echo to the sender
     expect(b.last()).toMatchObject(frame)
+    expect(core.currentRevision).toBe(1)
   })
 
-  it('carries promotion when present', () => {
+  it('rejects an illegal move with invalid_move and does not bump the revision', () => {
     const core = new RoomCore('ABCD')
     const a = fakeConn('a')
+    const b = fakeConn('b')
     core.receive(a.conn, join('ABCD', a.conn))
-    core.receive(a.conn, {
-      v: 1,
-      type: 'move',
-      from: 'a1',
-      to: 'a2',
-      promotion: 'queen',
-      revision: 0,
+    core.receive(b.conn, join('ABCD', b.conn))
+
+    // A king cannot reach f6 from g1 — a hostile/buggy client frame.
+    core.receive(a.conn, move('g1', 'f6', 0))
+    expect(a.find('error')).toMatchObject({
+      type: 'error',
+      code: 'invalid_move',
     })
-    expect(a.last()).toMatchObject({ type: 'move', promotion: 'queen' })
+    expect(a.last()).toMatchObject({ type: 'state', reason: 'invalid_move' })
+    expect(core.moveCount).toBe(0)
+    expect(core.currentRevision).toBe(0)
+    expect(b.types()).not.toContain('move') // never broadcast
+  })
+
+  it('rejects a move from the side not to move', () => {
+    const core = new RoomCore('ABCD')
+    const a = fakeConn('a')
+    const b = fakeConn('b')
+    core.receive(a.conn, join('ABCD', a.conn))
+    core.receive(b.conn, join('ABCD', b.conn))
+
+    core.receive(b.conn, move('b7', 'b6', 0)) // White is to move first
+    expect(b.find('error')).toMatchObject({
+      type: 'error',
+      code: 'invalid_move',
+    })
+    expect(core.moveCount).toBe(0)
+  })
+
+  it('rejects a seat playing the other colour, even at that colour’s turn', () => {
+    const core = new RoomCore('ABCD')
+    const a = fakeConn('a') // white seat
+    const b = fakeConn('b') // black seat
+    core.receive(a.conn, join('ABCD', a.conn))
+    core.receive(b.conn, join('ABCD', b.conn))
+
+    core.receive(a.conn, move('b1', 'b2', 0)) // white's push; black to move now
+    const peerSeen = b.sent.length
+    core.receive(a.conn, move('b7', 'b6', 1)) // the white seat moving for black
+
+    expect(a.find('error')).toMatchObject({
+      type: 'error',
+      code: 'invalid_move',
+    })
+    expect(core.moveCount).toBe(1)
+    expect(core.currentRevision).toBe(1)
+    expect(b.sent.length).toBe(peerSeen) // the hostile frame never spreads
+  })
+
+  it('a rejected move does not corrupt the following legal one', () => {
+    const core = new RoomCore('ABCD')
+    const a = fakeConn('a')
+    const b = fakeConn('b')
+    core.receive(a.conn, join('ABCD', a.conn))
+    core.receive(b.conn, join('ABCD', b.conn))
+
+    core.receive(a.conn, move('g1', 'f6', 0)) // illegal, rejected
+    core.receive(a.conn, move('b1', 'b2', 0)) // legal, same revision 0
+    expect(a.last()).toMatchObject({
+      type: 'move',
+      from: 'b1',
+      to: 'b2',
+      revision: 1,
+    })
+    expect(core.currentRevision).toBe(1)
   })
 
   it('rejects a stale move with stale_move and pushes fresh state', () => {
@@ -147,7 +227,7 @@ describe('RoomCore moves', () => {
     const b = fakeConn('b')
     core.receive(a.conn, join('ABCD', a.conn))
     core.receive(b.conn, join('ABCD', b.conn))
-    core.receive(a.conn, move('g1', 'f6', 0)) // revision now 1
+    core.receive(a.conn, move('b1', 'b2', 0)) // revision now 1
 
     core.receive(b.conn, move('b7', 'b6', 0)) // stale: server at 1
     const tail = b.sent.slice(-2)
@@ -164,7 +244,7 @@ describe('RoomCore moves', () => {
     const core = new RoomCore('ABCD')
     const a = fakeConn('a')
     core.receive(a.conn, join('ABCD', a.conn))
-    core.receive(a.conn, move('g1', 'f6', 0))
+    core.receive(a.conn, move('b1', 'b2', 0))
 
     const c = fakeConn('c')
     core.receive(c.conn, join('ABCD', c.conn))
@@ -172,7 +252,7 @@ describe('RoomCore moves', () => {
     expect(c.last()).toMatchObject({
       type: 'state',
       revision: 1,
-      moves: [{ from: 'g1', to: 'f6', ply: 1, color: 'white' }],
+      moves: [{ from: 'b1', to: 'b2', ply: 1, color: 'white' }],
     })
   })
 
@@ -180,7 +260,7 @@ describe('RoomCore moves', () => {
     const core = new RoomCore('ABCD')
     const a = fakeConn('a')
     core.receive(a.conn, join('ABCD', a.conn))
-    core.receive(a.conn, move('g1', 'f6', 0))
+    core.receive(a.conn, move('b1', 'b2', 0))
 
     const c = fakeConn('c')
     core.receive(c.conn, join('ABCD', c.conn))
@@ -197,9 +277,42 @@ describe('RoomCore moves', () => {
     const c = fakeConn('c')
     for (const p of [a, b, c]) core.receive(p.conn, join('ABCD', p.conn))
 
-    core.receive(c.conn, move('g1', 'f6', 0))
+    core.receive(c.conn, move('b1', 'b2', 0))
     expect(c.last()).toMatchObject({ type: 'error', code: 'bad_message' })
     expect(core.moveCount).toBe(0)
+  })
+})
+
+describe('RoomCore promotion', () => {
+  it('accepts a promotion move from a seeded position and broadcasts the kind', () => {
+    const core = new RoomCore('ABCD', fenWithPawnAtA5())
+    const a = fakeConn('a')
+    core.receive(a.conn, join('ABCD', a.conn))
+
+    // On the promotion zone a choice is mandatory.
+    core.receive(a.conn, move('a5', 'a6', 0))
+    expect(a.find('error')).toMatchObject({
+      type: 'error',
+      code: 'invalid_move',
+    })
+    expect(core.moveCount).toBe(0)
+
+    core.receive(a.conn, {
+      v: 1,
+      type: 'move',
+      from: 'a5',
+      to: 'a6',
+      promotion: 'queen',
+      revision: 0,
+    })
+    expect(a.last()).toMatchObject({
+      type: 'move',
+      from: 'a5',
+      to: 'a6',
+      promotion: 'queen',
+      color: 'white',
+      revision: 1,
+    })
   })
 })
 

@@ -149,12 +149,24 @@ only writer.
 
 Client sends a move with the `revision` it last saw. Server:
 
-- `move.revision == server.revision` → **accept**: append with `ply =
-  moves.length + 1`, increment `revision`, broadcast `move` (to *all* clients,
-  including the sender) and, if the seat set changed, nothing else.
+- `move.revision == server.revision` **and** the move is legal → **accept**:
+  append with `ply = moves.length + 1`, increment `revision`, broadcast `move`
+  (to *all* clients, including the sender) and, if the seat set changed, nothing
+  else.
 - `move.revision < server.revision` → **reject** with `error{code:'stale_move'}`
   and immediately send that client a fresh `state` so it resyncs. It never
   forks the list.
+- `move.revision == server.revision` but the move is **illegal** → **reject**
+  with `error{code:'invalid_move'}` and push fresh `state`. The revision does
+  not advance and nothing is broadcast.
+
+The room holds the authoritative rules `GameState` and advances it with the
+shared engine in `src/rules/` (t43). A frame is legal iff it matches a move the
+engine generates for the side to move: cells are looked up from notation and
+matched on `from`/`to` plus promotion, so an out-of-turn move (the engine only
+generates for `state.turn`) and an illegal one both fail the same way. A
+rejected move leaves `state` untouched, so the next legal move is still applied
+from the correct position.
 
 Client receives a `move` broadcast:
 
@@ -238,6 +250,7 @@ leave()".
 | `version_mismatch` | `join.protocol` ≠ server (§6)          | `version-mismatch`, stop, no reconnect  |
 | `room_full`        | reserved (v1 seats spectators instead) | `error` status, message shown           |
 | `bad_message`      | frame failed structural validation     | `error` status, message shown           |
+| `invalid_move`     | move not legal for the side to move (§5)| server also pushes `state` → resync     |
 | `stale_move`       | `move.revision` behind server (§5)     | server also pushes `state` → resync     |
 | `unknown_room`     | join after DO eviction (§4)            | create fresh room / `error` status      |
 | `internal`         | uncaught server fault                  | `error` status, message shown           |
@@ -260,6 +273,9 @@ unless the server closes it).
 | version mismatch, no reconnect    | "stops and does not reconnect…"                  | "rejects join with a different protocol"     |
 | welcome protocol mismatch         | "treats a welcome whose protocol differs…"       | (server never sends this; defensive)         |
 | non-version error surfaced        | "surfaces non-version errors…"                   | "rejects a stale move with stale_move"       |
+| illegal move rejected (t43)       | "surfaces non-version errors…"                   | "rejects an illegal move with invalid_move"  |
+| out-of-turn move rejected (t43)   | (a legal-looking move by the wrong seat)         | "rejects a move from the side not to move"   |
+| NACK leaves state intact (t43)    | —                                                | "a rejected move does not corrupt the next"  |
 | reconnect w/ backoff              | "backs off and reconnects after an unexpected…"  | (client-side; DO sees a re-join)             |
 | clientId reclaims seat            | "reuses the same clientId across a reconnect…"   | "a known clientId reclaims its seat"         |
 | leave stops reconnecting          | "stays closed (no reconnect) after leave()"      | "close frees the seat and re-broadcasts peer"|
@@ -269,7 +285,4 @@ unless the server closes it).
 
 - No persistence across DO eviction; no move history after the room dies.
 - No clocks, no resign/draw over the wire yet (hotseat only).
-- No server-side legality check — the server orders moves, the shared client
-  rules engine judges legality. (A cheating client could send an illegal move;
-  accepted for v1, flagged as a follow-up.)
 - No `room_full`: spectators are allowed instead.
