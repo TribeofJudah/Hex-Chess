@@ -5,6 +5,7 @@ import {
   decode,
   encode,
   PROTOCOL_VERSION,
+  type ClockWire,
   type ClientMsg,
   type Seat,
   type WireMove,
@@ -69,6 +70,11 @@ export interface UseRemoteGameResult extends UseGameResult {
   /** Server protocol version, present when `status === 'version-mismatch'`. */
   serverProtocol?: number
   error?: string
+  /** Server-authoritative clock (t56). Mirrors `welcome.clock` and the
+      per-tick `clock` frames. Absent on a v1 server or before the welcome
+      frame. Updated only by wire frames — never by the local rules engine,
+      so the field is the same regardless of whose turn it is locally. */
+  clock?: ClockWire
   /** Play a move and stream it (thin alias over `applyMove`). */
   sendMove: (from: string, to: string, promotion?: PieceKind) => void
   /** Offer/accept/decline a draw over the wire (t49): the offerDraw /
@@ -121,6 +127,9 @@ export function useRemoteGame(
   const [peerConnected, setPeerConnected] = useState(false)
   const [serverProtocol, setServerProtocol] = useState<number | undefined>()
   const [error, setError] = useState<string | undefined>()
+  // Server-authoritative clock (t56). Initialised from `welcome.clock` and
+  // replaced by every `clock` frame; absent until the first frame lands.
+  const [clock, setClock] = useState<ClockWire | undefined>()
 
   // Latest game, read from socket callbacks — assigned in an effect, not render.
   const gameRef = useRef(game)
@@ -198,6 +207,9 @@ export function useRemoteGame(
           revisionRef.current = msg.revision
           setSeat(msg.seat)
           rebuild(msg.moves)
+          // t56: welcome may carry the clock snapshot (present when the room
+          // already had one created; absent on a v1 server). Mirror it.
+          if (msg.clock) setClock(msg.clock)
           setStatus('waiting')
           break
         }
@@ -267,6 +279,15 @@ export function useRemoteGame(
           // the seat that ran out); we pass it through so the local reducer
           // can mark the right `gameOver` shape.
           gameRef.current.recvRoomEnd(msg.reason, msg.winner)
+          break
+        }
+        case 'clock': {
+          // t56: server-authoritative clock update. Replaces the local
+          // snapshot wholesale — the server is the only source of truth,
+          // we don't derive it from `turn`. The room clock can still be
+          // advancing while the game is over (the roomEnd frame is the
+          // terminal, not this one), so we don't tie it to `status`.
+          setClock(msg.clock)
           break
         }
         case 'pong':
@@ -370,6 +391,7 @@ export function useRemoteGame(
     peerConnected,
     ...(serverProtocol !== undefined ? { serverProtocol } : {}),
     ...(error !== undefined ? { error } : {}),
+    ...(clock !== undefined ? { clock } : {}),
     sendMove: game.applyMove,
     sendDraw,
     // The wire half of chooseOffer (t49): nothing is dispatched locally

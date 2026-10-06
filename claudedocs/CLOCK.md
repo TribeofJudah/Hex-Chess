@@ -159,7 +159,8 @@ handshake rejects it with `version_mismatch` instead.
 > `worker/src/protocol.ts`; the client copy is `src/ui/protocol.ts`.
 > The t56 fence covers `worker/**` only, so the client bump is a **required
 > follow-up in the same commit** — a v1 client against this worker is rejected
-> at join.
+> at join. (This landed in `c8930f3`, the Round 10 PGN commit — both bumps
+> are now in `origin/dev` together.)
 
 ---
 
@@ -196,11 +197,57 @@ only by `wrangler deploy --dry-run` plus review.
 ## 9. Non-goals
 
 - **No per-room time control.** The §1 constants are fixed; no negotiation.
-- **No client UI** yet: nothing renders `clock`, and `src/ui/protocol.ts` is
-  still v1 (see §6).
 - **No pause / no abandonment timeout.** A room whose players both vanish keeps
   burning until someone flags; there is no "abandoned room" cleanup.
 - **No `resign`.** Resignation is still absent from the protocol; only a draw
   agreement and a flag fall end the room.
 - The room still does not enforce checkmate / stalemate / 50-move as terminal
   states — that gap predates t56 and is unchanged.
+
+---
+
+## 10. Client rendering (Round 11)
+
+The clock is rendered by `src/ui/Clock.tsx`, mounted in the `RemoteRoom`
+status bar alongside the existing "White/Black to move" text. The
+component is a **pure renderer** — `useRemoteGame` is the source of
+truth for the data:
+
+- `useRemoteGame.clock?: ClockWire` is seeded from `welcome.clock`
+  (t56) and replaced by every `clock` frame.
+- Before the first frame lands (i.e. before `welcome`) the component
+  renders a `…` placeholder.
+- The `clock` case in the message switch was the actual wire-side
+  deliverable that made the UI possible — it was silently dropped
+  before Round 11 (no `case 'clock'` in `handle`).
+- The active side (whose turn it is locally) is the bigger box and
+  pulses if its remaining time is < 30s; the idle side is dimmer but
+  still shown — the wire is server-authoritative for both sides, so
+  the opponent's clock keeps burning during the local player's move
+  (which is correct, per `worker/src/clock.ts`'s `afterMove`).
+
+The component does NOT extrapolate beyond the tick window — the
+visual countdown within a 1 s tick is cosmetic (`liveRemaining`
+caps at `tickMs`), and the next wire frame is the truth. If the
+socket is offline, the last frame's number stays on screen; this is
+the same fallback the server uses (a stale frame is still better
+than blank).
+
+`ended === true` (mirrored from `welcome.ended`; equivalently
+`game.gameOver !== null`) freezes the active highlight on both
+sides. The frozen numbers reflect the last `clock` frame the
+server sent — the roomEnd frame is the terminal, not the clock.
+
+### `formatClock` contract
+
+- Floors at zero on negative input (defensive; the server already
+  floors, so this is purely belt-and-braces for stale frames).
+- Rounds down to whole seconds (`5_999 ms` → `0:05`).
+- `mm:ss` with a leading `0` on the seconds digit (`1:05` not `1:5`).
+
+### Styling
+
+`src/ui/theme.css` carries the `.hxc-clock` rules. Active seat =
+yellow border (`#ffd166`); low-time = animated red. No animation
+respect `prefers-reduced-motion` — flagged as a polish item for
+Round 12 if needed.

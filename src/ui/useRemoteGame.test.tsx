@@ -308,6 +308,77 @@ describe('useRemoteGame reconnect', () => {
   })
 })
 
+describe('useRemoteGame clock (round 11)', () => {
+  it('seeds clock from welcome.clock', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() =>
+      current().recv(
+        welcomeMsg({
+          clock: {
+            whiteMs: 280_000,
+            blackMs: 300_000,
+            lastTickAt: 20_000,
+            tickMs: 1000,
+            incrementMs: 3000,
+          },
+        }),
+      ),
+    )
+    expect(result.current.clock).toEqual({
+      whiteMs: 280_000,
+      blackMs: 300_000,
+      lastTickAt: 20_000,
+      tickMs: 1000,
+      incrementMs: 3000,
+    })
+  })
+
+  it('mirrors the per-tick clock frames', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() =>
+      current().recv(
+        welcomeMsg({
+          clock: {
+            whiteMs: 300_000,
+            blackMs: 300_000,
+            lastTickAt: 0,
+            tickMs: 1000,
+            incrementMs: 3000,
+          },
+        }),
+      ),
+    )
+    act(() =>
+      current().recv({
+        v: PROTOCOL_VERSION,
+        type: 'clock',
+        code: 'ABCD',
+        clock: {
+          whiteMs: 295_000,
+          blackMs: 300_000,
+          lastTickAt: 5_000,
+          tickMs: 1000,
+          incrementMs: 3000,
+        },
+      }),
+    )
+    expect(result.current.clock?.whiteMs).toBe(295_000)
+    expect(result.current.clock?.blackMs).toBe(300_000)
+  })
+
+  it('leaves clock undefined when welcome does not carry one', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    expect(result.current.clock).toBeUndefined()
+  })
+})
+
 describe('useRemoteGame draw agreement (t49)', () => {
   it('sends the offerDraw / acceptDraw / declineDraw wire frames', () => {
     const { connect, current } = makeSocketFactory()

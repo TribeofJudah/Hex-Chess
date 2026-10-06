@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Clock } from './Clock'
 import { ControlBar } from './ControlBar'
 import { DrawOfferBanner } from './DrawOfferBanner'
 import { GameOverBanner } from './GameOverBanner'
@@ -76,6 +77,11 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
           aria-hidden="true"
         />
         <span>{status}</span>
+        <Clock
+          clock={game.clock}
+          turn={game.turn}
+          ended={game.gameOver !== null}
+        />
         <span className="hxc-room__spacer" />
         <button
           type="button"
