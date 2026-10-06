@@ -480,6 +480,40 @@ describe('useRemoteGame draw agreement (t49)', () => {
     expect(result.current.drawOffer).toBeNull()
   })
 
+  // R12: server-enforced rule-book terminals. The hook forwards every
+  // `roomEnd{reason}` into the reducer's `recvRoomEnd`, which maps it to
+  // a `GameOver` kind. The reducer carries the reason on `roomEndReason`
+  // (which the PGN exporter consumes).
+  it.each([
+    ['checkmate', { kind: 'checkmate', winner: 'white' }] as const,
+    ['stalemate', { kind: 'stalemate', winner: 'black' }] as const,
+    ['draw50', { kind: 'fifty-move' }] as const,
+    ['repetition', { kind: 'repetition' }] as const,
+  ])(
+    'mirrors a server-delivered roomEnd reason (%s) into the right gameOver + roomEndReason',
+    (reason, expectedGameOver) => {
+      const { connect, current } = makeSocketFactory()
+      const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+      act(() => current().open())
+      act(() => current().recv(welcomeMsg()))
+      // Build the wire frame with the right optional field for reasons that
+      // carry a winner.
+      const wireFrame = {
+        v: PROTOCOL_VERSION,
+        type: 'roomEnd' as const,
+        code: 'ABCD',
+        reason,
+        ...(expectedGameOver.kind === 'checkmate' ||
+        expectedGameOver.kind === 'stalemate'
+          ? { winner: expectedGameOver.winner }
+          : {}),
+      }
+      act(() => current().recv(wireFrame))
+      expect(result.current.gameOver).toEqual(expectedGameOver)
+      expect(result.current.roomEndReason).toBe(reason)
+    },
+  )
+
   it('treats an invalid_draw NACK as a soft refusal, not a room error', () => {
     const { connect, current } = makeSocketFactory()
     const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))

@@ -1,7 +1,9 @@
 /**
  * Wire types for the HexChess multiplayer room. Mirrors `worker/src/protocol.ts`
  * (t48 adds the draw frames; t56 adds the clock frames and bumps
- * `PROTOCOL_VERSION` to 2).
+ * `PROTOCOL_VERSION` to 2; R12 adds the server-side terminal reasons
+ * `checkmate` / `stalemate` / `draw50` / `repetition` and bumps
+ * `PROTOCOL_VERSION` to 3).
  */
 import type { GameMove } from './useGame'
 import type { PieceColor, PieceKind } from './hexMath'
@@ -148,15 +150,26 @@ export interface DrawOfferMsg {
   by: Seat
 }
 /**
- * Terminal frame: the room is over (t48 + t56).
- * - `draw_agreement`: both seats agreed; no winner.
- * - `time`: a clock ran out; `winner` names the OPPOSITE side.
+ * Terminal frame: the room is over.
+ * - `draw_agreement` (t48): both seats agreed; no winner.
+ * - `time` (t56): a clock ran out; `winner` names the OPPOSITE side.
+ * - `checkmate` / `stalemate` / `draw50` / `repetition` (R12): the server-side
+ *   engine now enforces the rule-book terminals. `checkmate` and `stalemate`
+ *   carry a `winner` (Gliński stalemate is a 3/4–1/4 split, NOT a draw —
+ *   `winner` is the side that trapped the opponent's king). `draw50` and
+ *   `repetition` have no winner.
  */
 export interface RoomEndMsg {
   v: number
   type: 'roomEnd'
   code: string
-  reason: 'draw_agreement' | 'time'
+  reason:
+    | 'draw_agreement'
+    | 'time'
+    | 'checkmate'
+    | 'stalemate'
+    | 'draw50'
+    | 'repetition'
   winner?: PieceColor
 }
 /**
@@ -184,10 +197,13 @@ export type ServerMsg =
 
 /**
  * Bumped to 2 in t56 (clock + ended on welcome; clock frames; roomEnd.reason
- * gained 'time' + optional winner). v1 clients are rejected at join with
- * `version_mismatch`.
+ * gained 'time' + optional winner). Bumped to 3 in R12: the server now
+ * enforces checkmate / stalemate / 50-move / threefold repetition, so
+ * `roomEnd.reason` widens to include all six. v2 clients are rejected at
+ * join with `version_mismatch` because their `RoomEndMsg.reason` cannot
+ * represent the new terminals.
  */
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 export type ErrCode =
   | 'version_mismatch'

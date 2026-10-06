@@ -371,10 +371,14 @@ export function useRemoteGame(
     })
   }, [game.moves, status, send])
 
-  // Terminal say of the wire (t55): the mirrored agreement gameOver is the
-  // draw_agreement producer; t54's clock adds 'time' on top of it. The
-  // reducer carries the reason on `game.roomEndReason` (set by `recvRoomEnd`
-  // in useGame), so it's exposed verbatim via `...game` in the return below.
+  // Terminal say of the wire (t55 + t56 + R12): the reducer carries the
+  // wire reason on `game.roomEndReason` (set by `recvRoomEnd` in useGame),
+  // so it's exposed verbatim via `...game` in the return below. The full
+  // union is `'draw_agreement' | 'time' | 'checkmate' | 'stalemate' |
+  // 'draw50' | 'repetition' | null`; each reason maps to a matching
+  // `gameOver` kind (`agreement` / `resign` / `checkmate` / `stalemate` /
+  // `fifty-move` / `repetition`). `RemoteRoom.tsx` and `pgn.ts` consume the
+  // reason + the shaped `gameOver` directly — no extra translation here.
 
   const leave = useCallback(() => {
     closedByUsRef.current = true

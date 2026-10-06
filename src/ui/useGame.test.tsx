@@ -508,4 +508,33 @@ describe('useGame draw offer (t49)', () => {
     expect(result.current.drawOffer).toBeNull()
     expect(result.current.roomEndReason).toBe('draw_agreement')
   })
+
+  // R12: the reducer's wire→kind mapping covers every server-emitted
+  // reason. Each test pins one (reason, expected gameOver) pair, so a
+  // future wire-shape edit that loses a branch surfaces immediately.
+  it.each([
+    ['checkmate', 'white', { kind: 'checkmate', winner: 'white' }] as const,
+    ['checkmate', 'black', { kind: 'checkmate', winner: 'black' }] as const,
+    ['stalemate', 'white', { kind: 'stalemate', winner: 'white' }] as const,
+    ['stalemate', 'black', { kind: 'stalemate', winner: 'black' }] as const,
+    ['draw50', undefined, { kind: 'fifty-move' }] as const,
+    ['repetition', undefined, { kind: 'repetition' }] as const,
+    ['time', 'white', { kind: 'resign', winner: 'white' }] as const,
+  ])(
+    'recvRoomEnd(%s, %s) maps to %p + carries the reason on roomEndReason',
+    (reason, winner, expected) => {
+      const { result } = renderHook(() => useGame())
+      act(() =>
+        result.current.recvRoomEnd(
+          reason as Parameters<typeof result.current.recvRoomEnd>[0],
+          // The `timeLoser` would flip the winner, but the reducer's
+          // signature takes the winner directly; tests pass through the
+          // winner the worker would have emitted.
+          winner as 'white' | 'black' | undefined,
+        ),
+      )
+      expect(result.current.gameOver).toEqual(expected)
+      expect(result.current.roomEndReason).toBe(reason)
+    },
+  )
 })

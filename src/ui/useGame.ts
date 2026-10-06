@@ -237,11 +237,22 @@ interface GameState {
   gameOver: GameOver | null
   /**
    * Wire reason for the multiplayer `roomEnd` frame that set `gameOver`
-   * (t48 + t56). Carried through so the PGN export can pick the right
+   * (t48 + t56 + R12). Carried through so the PGN export can pick the right
    * annotation comment. null when the game ended locally (hotseat, resign,
-   * checkmate, fifty-move, repetition).
+   * local checkmate, local fifty-move, local repetition).
+   *
+   * R12 adds the four server-side rule-book reasons the worker now emits:
+   * `checkmate`, `stalemate` (Gliński 3/4 to `winner`), `draw50`,
+   * `repetition`. See `claudedocs/PGN_DRAW.md` §5.
    */
-  roomEndReason: 'draw_agreement' | 'time' | null
+  roomEndReason:
+    | 'draw_agreement'
+    | 'time'
+    | 'checkmate'
+    | 'stalemate'
+    | 'draw50'
+    | 'repetition'
+    | null
 }
 
 /** A fresh game state around an arbitrary starting position. */
@@ -297,11 +308,24 @@ type GameAction =
   /** Server mirror: a drawOffer{state,by} frame; 'idle' arrives as null. */
   | { type: 'recvDrawOffer'; view: DrawOfferView | null }
   /**
-   * Server mirror: roomEnd frame (t48 + t56 terminal).
-   * `reason` is the wire value; `winner` is the OPPOSITE of the seat that
-   * timed out (only meaningful when `reason === 'time'`).
+   * Server mirror: roomEnd frame (t48 + t56 + R12 terminals).
+   * `reason` is the wire value; `winner` is the side that WON, opposite to
+   * the seat that timed out when `reason === 'time'`, opposite to the
+   * stalemated/mated side when `reason === 'checkmate' | 'stalemate'`,
+   * and absent for the two draws (`draw_agreement` / `draw50`) and
+   * `repetition`.
    */
-  | { type: 'recvRoomEnd'; reason: 'draw_agreement' | 'time'; winner?: 'white' | 'black' }
+  | {
+      type: 'recvRoomEnd'
+      reason:
+        | 'draw_agreement'
+        | 'time'
+        | 'checkmate'
+        | 'stalemate'
+        | 'draw50'
+        | 'repetition'
+      winner?: 'white' | 'black'
+    }
 
 interface GameStore {
   game: GameState
@@ -550,17 +574,47 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         game: { ...store.game, drawOffer: action.view },
       }
     case 'recvRoomEnd': {
-      // Wire mirror (t48 + t56): roomEnd ends the room. For `draw_agreement`
-      // the kind is `agreement`. For `time` the wire's `winner` is the side
-      // that WON, so the LOSER is the opposite — useful for the PGN export
-      // comment. (The board is frozen, so the result line for timeouts
-      // carries the winner via the existing {kind, winner} shape; we use
-      // `resign` for v1 since checkmate-by-clock is not yet implemented.)
+      // Wire mirror (t48 + t56 + R12): roomEnd ends the room. Translate the
+      // wire `reason` to a `GameOver` kind so the banner + PGN exporter see a
+      // shape they already understand:
+      //   - `draw_agreement` -> { kind: 'agreement' }                 (t48)
+      //   - `time` + winner  -> { kind: 'resign', winner }            (t56)
+      //   - `checkmate` + winner -> { kind: 'checkmate', winner }     (R12)
+      //   - `stalemate` + winner -> { kind: 'stalemate', winner }     (R12,
+      //           Gliński 3/4–1/4 — the `winner` is the side that trapped
+      //           the opponent's king, mirroring `src/rules/adapter.ts`
+      //           where statusAfter returns { kind: 'stalemate', winner:
+      //           opponent })
+      //   - `draw50`         -> { kind: 'fifty-move' }                (R12)
+      //   - `repetition`     -> { kind: 'repetition' }                (R12)
+      // The board is frozen at this point; only the terminal shape changes.
       const { reason, winner } = action
-      const gameOver: GameOver =
-        reason === 'time' && winner
-          ? { kind: 'resign', winner }
-          : { kind: 'agreement' }
+      let gameOver: GameOver
+      switch (reason) {
+        case 'checkmate':
+        case 'stalemate':
+          // Defensive: a malformed frame with no winner is still a terminal.
+          // The PGN exporter annotates only when the snapshot corroborates
+          // the reason, so a missing winner downgrades to a non-banner end.
+          gameOver =
+            winner !== undefined
+              ? { kind: reason, winner }
+              : { kind: 'agreement' }
+          break
+        case 'draw50':
+          gameOver = { kind: 'fifty-move' }
+          break
+        case 'repetition':
+          gameOver = { kind: 'repetition' }
+          break
+        case 'time':
+          gameOver =
+            winner !== undefined ? { kind: 'resign', winner } : { kind: 'agreement' }
+          break
+        case 'draw_agreement':
+          gameOver = { kind: 'agreement' }
+          break
+      }
       return {
         ...store,
         game: {
@@ -589,11 +643,19 @@ export interface UseGameResult {
   inCheckCell?: string | undefined
   canUndo: boolean
   /**
-   * Wire reason for the multiplayer `roomEnd` that ended the game (t56).
-   * null when the game ended locally (resign, hotseat draw, checkmate,
-   * repetition, fifty-move). Drives the PGN export's annotation comment.
+   * Wire reason for the multiplayer `roomEnd` that ended the game
+   * (t56 + R12). null when the game ended locally (resign, hotseat draw,
+   * local checkmate, local repetition, local fifty-move). Drives the
+   * PGN export's annotation comment.
    */
-  roomEndReason: 'draw_agreement' | 'time' | null
+  roomEndReason:
+    | 'draw_agreement'
+    | 'time'
+    | 'checkmate'
+    | 'stalemate'
+    | 'draw50'
+    | 'repetition'
+    | null
   /** Half-move index currently viewed; equals `moves.length` when live (T14). */
   viewPly: number
   /** Black is played by the AI (White human vs Black AI). */
@@ -619,8 +681,17 @@ export interface UseGameResult {
   chooseOffer(kind: DrawOfferKind): void
   /** Wire mirror: apply a drawOffer{state,by} frame, 'idle' as null. */
   recvDrawOffer(view: DrawOfferView | null): void
-  /** Wire mirror: apply `roomEnd{reason, winner?}` (t48 + t56 terminal). */
-  recvRoomEnd(reason: 'draw_agreement' | 'time', winner?: 'white' | 'black'): void
+  /** Wire mirror: apply `roomEnd{reason, winner?}` (t48 + t56 + R12 terminals). */
+  recvRoomEnd(
+    reason:
+      | 'draw_agreement'
+      | 'time'
+      | 'checkmate'
+      | 'stalemate'
+      | 'draw50'
+      | 'repetition',
+    winner?: 'white' | 'black',
+  ): void
   undo(): void
   newGame(): void
   /** Jump the board view back to the position after `ply` half-moves (T14). */
