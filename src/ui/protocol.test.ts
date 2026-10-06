@@ -11,8 +11,10 @@ import {
 describe('protocol', () => {
   it('exposes the current version', () => {
     // Bumped to 2 in t56 (clock + ended on welcome; clock frames; roomEnd.reason
-    // gained 'time' + optional winner).
-    expect(PROTOCOL_VERSION).toBe(2)
+    // gained 'time' + optional winner). Bumped to 3 in R12: the worker now
+    // enforces checkmate / stalemate / 50-move / threefold repetition, so
+    // roomEnd.reason widens to all six; v2 clients are rejected at join.
+    expect(PROTOCOL_VERSION).toBe(3)
   })
 
   it('encodes every client message shape as JSON', () => {
@@ -162,6 +164,24 @@ describe('protocol', () => {
       },
       // roomEnd gained 'time' + optional winner.
       { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'time', winner: 'black' },
+    ]
+    for (const msg of messages) {
+      expect(decode(encode(msg))).toEqual(msg)
+    }
+  })
+
+  it('round-trips the R12 server-side rule-book terminals', () => {
+    // The four new reasons the worker emits after promoting checkmate /
+    // stalemate / 50-move / threefold repetition to server-enforced
+    // terminals. `checkmate` and `stalemate` carry a `winner`; the two
+    // draws do not. JSON round-trip is enough — the `decode` switch
+    // only checks the discriminator, and the parser already accepts
+    // `roomEnd` as a server frame.
+    const messages: ServerMsg[] = [
+      { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'checkmate', winner: 'white' },
+      { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'stalemate', winner: 'black' },
+      { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'draw50' },
+      { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'repetition' },
     ]
     for (const msg of messages) {
       expect(decode(encode(msg))).toEqual(msg)

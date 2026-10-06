@@ -185,6 +185,90 @@ describe('pgn', () => {
       toPgn(moves, { kind: 'repetition' }, 'draw_agreement'),
     ).toContain('[Result "1/2-1/2"]')
   })
+
+  // R12: server-enforced rule-book terminals. Each reason maps to one
+  // PGN comment line; the result token comes from `pgnResult(gameOver)`.
+  // The corroboration guard (a stale reason on a non-matching snapshot
+  // renders without a comment) still applies — see the un-corroborated
+  // check at the bottom of the new tests below.
+
+  it('threads a checkmate roomEnd into the winner-named comment + 1-0 / 0-1', () => {
+    const whiteMate = toPgn(
+      moves,
+      { kind: 'checkmate', winner: 'white' },
+      'checkmate',
+    )
+    expect(whiteMate).toContain('[Result "1-0"]')
+    expect(whiteMate.endsWith('*[Checkmate, White wins]*\n1-0\n')).toBe(true)
+    const blackMate = toPgn(
+      moves,
+      { kind: 'checkmate', winner: 'black' },
+      'checkmate',
+    )
+    expect(blackMate).toContain('[Result "0-1"]')
+    expect(blackMate.endsWith('*[Checkmate, Black wins]*\n0-1\n')).toBe(true)
+  })
+
+  it('threads a stalemate roomEnd into the Gliński 3/4 comment + 3/4-1/4 / 1/4-3/4', () => {
+    // Worker chose winner = the side that trapped the opponent's king;
+    // pgnResult() already returns the right split via the stalemate kind.
+    const whiteStalemate = toPgn(
+      moves,
+      { kind: 'stalemate', winner: 'white' },
+      'stalemate',
+    )
+    expect(whiteStalemate).toContain('[Result "3/4-1/4"]')
+    expect(
+      whiteStalemate.endsWith('*[Stalemate — Gliński 3/4 to White]*\n3/4-1/4\n'),
+    ).toBe(true)
+    const blackStalemate = toPgn(
+      moves,
+      { kind: 'stalemate', winner: 'black' },
+      'stalemate',
+    )
+    expect(blackStalemate).toContain('[Result "1/4-3/4"]')
+    expect(
+      blackStalemate.endsWith('*[Stalemate — Gliński 3/4 to Black]*\n1/4-3/4\n'),
+    ).toBe(true)
+  })
+
+  it('threads a draw50 roomEnd into the 50-move-rule comment + 1/2-1/2', () => {
+    const text = toPgn(
+      moves,
+      { kind: 'fifty-move' },
+      'draw50',
+    )
+    expect(text).toContain('[Result "1/2-1/2"]')
+    expect(text.endsWith('*[Draw by 50-move rule]*\n1/2-1/2\n')).toBe(true)
+  })
+
+  it('threads a repetition roomEnd into the threefold-repetition comment + 1/2-1/2', () => {
+    const text = toPgn(
+      moves,
+      { kind: 'repetition' },
+      'repetition',
+    )
+    expect(text).toContain('[Result "1/2-1/2"]')
+    expect(text.endsWith('*[Draw by threefold repetition]*\n1/2-1/2\n')).toBe(true)
+  })
+
+  it('omits the R12 comment when the snapshot does not corroborate the reason', () => {
+    // The t55 corroboration guard extends to the new reasons: a `checkmate`
+    // reason on a `fifty-move` snapshot renders no comment, just the result
+    // from the snapshot. Same for every other (reason, kind) mismatch.
+    expect(
+      toPgn(moves, { kind: 'fifty-move' }, 'checkmate'),
+    ).not.toContain('*[')
+    expect(
+      toPgn(moves, { kind: 'checkmate', winner: 'white' }, 'draw50'),
+    ).not.toContain('*[')
+    expect(
+      toPgn(moves, { kind: 'stalemate', winner: 'white' }, 'repetition'),
+    ).not.toContain('*[')
+    expect(
+      toPgn(moves, { kind: 'repetition' }, 'stalemate'),
+    ).not.toContain('*[')
+  })
 })
 
 describe('remote export threading (t55)', () => {
@@ -227,12 +311,58 @@ describe('remote export threading (t55)', () => {
     )
     expect(result.current.gameOver).toEqual({ kind: 'agreement' })
     // The exact expression RemoteRoom's export button calls (with the same
-    // null-shim, since useGame's reason is `'draw_agreement' | 'time' | null`):
+    // null-shim, since useGame's reason is the R12 union |
+    // null):
     const text = toPgn(
       result.current.moves,
       result.current.gameOver,
       result.current.roomEndReason ?? undefined,
     )
     expect(text.endsWith('*[Draw by agreement]*\n1/2-1/2\n')).toBe(true)
+  })
+
+  // R12 integration: the hook delivers a `roomEnd{reason: 'checkmate',
+  // winner: 'white'}` frame; the export button emits the
+  // `*[Checkmate, White wins]*` comment + `1-0` result. Same shape for the
+  // other three new reasons.
+  it('threads a server-delivered checkmate into the winner-named PGN', async () => {
+    const socket = new StubSocket()
+    const { result } = renderHook(() =>
+      useRemoteGame('MATE', {
+        connect: () => socket,
+        urlFor: (code) => `ws://room/${code}`,
+      }),
+    )
+    act(() => socket.open())
+    act(() =>
+      socket.recv({
+        v: PROTOCOL_VERSION,
+        type: 'welcome',
+        seat: 'white',
+        protocol: PROTOCOL_VERSION,
+        revision: 0,
+        moves: [],
+      }),
+    )
+    act(() =>
+      socket.recv({
+        v: PROTOCOL_VERSION,
+        type: 'roomEnd',
+        code: 'MATE',
+        reason: 'checkmate',
+        winner: 'white',
+      }),
+    )
+    await waitFor(() =>
+      expect(result.current.roomEndReason).toBe('checkmate'),
+    )
+    expect(result.current.gameOver).toEqual({ kind: 'checkmate', winner: 'white' })
+    const text = toPgn(
+      result.current.moves,
+      result.current.gameOver,
+      result.current.roomEndReason ?? undefined,
+    )
+    expect(text).toContain('[Result "1-0"]')
+    expect(text.endsWith('*[Checkmate, White wins]*\n1-0\n')).toBe(true)
   })
 })
