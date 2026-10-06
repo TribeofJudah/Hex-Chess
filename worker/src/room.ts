@@ -10,6 +10,15 @@ import {
 import { serializePosition } from './board/fen'
 import { initialGame } from './rules/rules'
 import { validateDraw, validateMove } from './validate'
+import {
+  afterMove,
+  clockWire,
+  freezeAt,
+  initialClock,
+  other,
+  remainingAt,
+  type ClockState,
+} from './clock'
 
 /**
  * Pure room state machine (t41). No sockets, no timers, no Durable Object
@@ -30,8 +39,13 @@ import { validateDraw, validateMove } from './validate'
  *
  * Draw agreement (t48): `offerDraw`/`acceptDraw`/`declineDraw` are pure state
  * transitions returning a `DrawResult`; `receive` turns that into the wire
- * frames. The room has one terminal state (an agreed draw) — checkmate and
- * the other engine game-overs are not yet enforced here.
+ * frames. The room's terminal states are an agreed draw and a flag fall —
+ * checkmate and the other engine game-overs are not yet enforced here.
+ *
+ * Clock (t56): the room holds one `ClockState` (clock.ts) and burns the side
+ * to move while both seats are taken. `tick(now)` is called by the DO's 1 Hz
+ * alarm; `now` is injectable (`new RoomCore(code, snap, () => t)`) so the
+ * clock is tested without fake timers.
  */
 
 /**
@@ -64,8 +78,10 @@ export interface RoomSnapshot {
   drawOffer?: 'idle' | 'awaiting'
   /** Seat that owns the open offer, or null. */
   drawBy?: Seat | null
-  /** A draw has been agreed; the room is terminal. */
+  /** The room is terminal: a draw was agreed or a clock ran out. */
   ended?: boolean
+  /** The chess clock (t56); optional so a pre-t56 snapshot still hydrates. */
+  clock?: ClockState
 }
 
 /** Why a draw frame was refused (t48). */
@@ -112,10 +128,14 @@ export class RoomCore {
   private drawOffer: 'idle' | 'awaiting' = 'idle'
   private drawBy: Seat | null = null
   private ended = false
+  /** The chess clock (t56). `since` is `null` until both seats are taken. */
+  private clock: ClockState = initialClock()
 
   constructor(
     readonly room: string,
     snapshot?: RoomSnapshot,
+    /** Time source, injectable so tests need no fake timers. */
+    private now: () => number = Date.now,
   ) {
     if (snapshot) {
       this.fen = snapshot.fen
@@ -124,6 +144,7 @@ export class RoomCore {
       this.drawOffer = snapshot.drawOffer ?? 'idle'
       this.drawBy = snapshot.drawBy ?? null
       this.ended = snapshot.ended ?? false
+      this.clock = snapshot.clock ?? initialClock()
     }
   }
 
@@ -137,6 +158,10 @@ export class RoomCore {
   get drawOfferState(): 'idle' | 'awaiting' {
     return this.drawOffer
   }
+  /** A clock is burning — the DO keeps its 1 Hz alarm armed while true (t56). */
+  get clockRunning(): boolean {
+    return this.clock.since !== null
+  }
 
   /** State a respawned DO hydrates from (t44) — the inverse of the constructor. */
   snapshot(): RoomSnapshot {
@@ -147,7 +172,50 @@ export class RoomCore {
       drawOffer: this.drawOffer,
       drawBy: this.drawBy,
       ended: this.ended,
+      clock: this.clock,
     }
+  }
+
+  /**
+   * One clock tick (t56), driven by the DO's 1 Hz alarm. Broadcasts `clock`
+   * and, when the side to move has run out, flags them: a final `clock` at
+   * zero then the terminal `roomEnd{reason:'time'}`. Returns whether a clock
+   * is still running, so the caller knows to arm the next tick.
+   */
+  tick(now: number): boolean {
+    if (this.clock.since === null) return false
+    const turn = fenTurn(this.fen)
+    if (remainingAt(this.clock, turn, turn, now) <= 0) {
+      this.clock = freezeAt(this.clock, turn, now)
+      this.broadcast(this.clockFrame(now))
+      this.ended = true
+      this.broadcast({
+        v: PROTOCOL_VERSION,
+        type: 'roomEnd',
+        code: this.room,
+        reason: 'time',
+        winner: other(turn),
+      })
+      return false
+    }
+    this.broadcast(this.clockFrame(now))
+    return true
+  }
+
+  private clockFrame(now: number): ServerMsg {
+    return {
+      v: PROTOCOL_VERSION,
+      type: 'clock',
+      code: this.room,
+      ...clockWire(this.clock, fenTurn(this.fen), now),
+    }
+  }
+
+  /** Start the clock the moment both seats are taken (t56). Idempotent. */
+  private startClock(): void {
+    if (this.clock.since !== null || this.ended) return
+    const taken = new Set(this.reserved.values())
+    if (taken.has('white') && taken.has('black')) this.clock.since = this.now()
   }
 
   /** Route one already-decoded client frame. */
@@ -188,6 +256,7 @@ export class RoomCore {
     const seat = this.reserved.get(conn.clientId) ?? this.freeSeat()
     this.reserved.set(conn.clientId, seat)
     this.live.set(conn.clientId, { ...conn, seat })
+    this.startClock()
     conn.send({
       v: PROTOCOL_VERSION,
       type: 'welcome',
@@ -197,6 +266,8 @@ export class RoomCore {
       protocol: PROTOCOL_VERSION,
       revision: this.revision,
       moves: this.moves.slice(),
+      clock: clockWire(this.clock, fenTurn(this.fen), this.now()),
+      ended: this.ended,
     })
     this.broadcastPeer()
   }
@@ -218,6 +289,11 @@ export class RoomCore {
         code: 'bad_message',
         message: 'spectators cannot move',
       })
+      return
+    }
+    if (this.ended) {
+      // No play after a draw was agreed or a clock ran out (t56).
+      this.nackInvalid(conn, 'the room has ended')
       return
     }
     if (msg.revision !== this.revision) {
@@ -253,6 +329,8 @@ export class RoomCore {
     }
     this.moves.push(move)
     this.revision += 1
+    // The mover burned their clock and earns the increment; the opponent is now on it.
+    this.clock = afterMove(this.clock, seatColor, this.now())
     this.broadcast({
       v: PROTOCOL_VERSION,
       type: 'move',
@@ -313,6 +391,8 @@ export class RoomCore {
     const open = this.openOfferFor(by)
     if (!open.ok) return open
     this.ended = true
+    // The game is over: stop the clock too, or the DO keeps ticking a dead room.
+    this.clock = freezeAt(this.clock, fenTurn(this.fen), this.now())
     this.drawOffer = 'idle'
     this.drawBy = null
     return {

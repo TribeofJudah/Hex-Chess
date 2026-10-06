@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { parsePosition, serializePosition } from '../src/board/fen'
 import { notationToAxial } from '../src/board/notation'
 import { keyOf } from '../src/board/pieces'
-import type { ClientMsg, ServerMsg } from '../src/protocol'
+import {
+  PROTOCOL_VERSION,
+  type ClientMsg,
+  type ServerMsg,
+} from '../src/protocol'
 import { RoomCore, type Conn } from '../src/room'
 
 const START_FEN =
@@ -23,7 +27,7 @@ function fenWithPawnAtA5(): string {
   })
 }
 
-function fakeConn(clientId: string, protocol = 1) {
+function fakeConn(clientId: string, protocol = PROTOCOL_VERSION) {
   const sent: ServerMsg[] = []
   const conn: Conn = { clientId, protocol, send: (m) => sent.push(m) }
   return {
@@ -394,13 +398,13 @@ describe('RoomCore persistence (t44)', () => {
 describe('RoomCore protocol + ping', () => {
   it('rejects a join with a different protocol version', () => {
     const core = new RoomCore('ABCD')
-    const a = fakeConn('a', 2)
+    const a = fakeConn('a', PROTOCOL_VERSION + 1)
     core.receive(a.conn, join('ABCD', a.conn))
     expect(a.last()).toMatchObject({
       type: 'error',
       code: 'version_mismatch',
-      expectedProtocol: 1,
-      receivedProtocol: 2,
+      expectedProtocol: PROTOCOL_VERSION,
+      receivedProtocol: PROTOCOL_VERSION + 1,
     })
     expect(a.types()).not.toContain('welcome')
   })

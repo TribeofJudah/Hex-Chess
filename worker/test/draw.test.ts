@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { ClientMsg, ServerMsg } from '../src/protocol'
+import {
+  PROTOCOL_VERSION,
+  type ClientMsg,
+  type ServerMsg,
+} from '../src/protocol'
 import { RoomCore, type Conn } from '../src/room'
 import { validateDraw } from '../src/validate'
 
@@ -8,7 +12,11 @@ const START_FEN =
 
 function fakeConn(clientId: string) {
   const sent: ServerMsg[] = []
-  const conn: Conn = { clientId, protocol: 1, send: (m) => sent.push(m) }
+  const conn: Conn = {
+    clientId,
+    protocol: PROTOCOL_VERSION,
+    send: (m) => sent.push(m),
+  }
   return {
     conn,
     sent,

@@ -212,16 +212,18 @@ view, and validation, lives in the section noted.
 |---------------|------------|---------------------------------|---------------------------------------------|
 | `move`        | client→server| §5 (above)                     | the only thing that mutates the ply counter |
 | `state`       | server→client| §3.2, §4                       | rebuild frame: revision + moves + occupants |
-| `welcome`     | server→client| §4, §6                         | post-`join` rebuild; carries `protocol`     |
+| `welcome`     | server→client| §4, §6, `CLOCK.md`             | post-`join` rebuild; carries `protocol`, optional `clock` + `ended` (v2) |
+| `clock`       | server→client| `CLOCK.md` §6                  | per-seat view of the server-authoritative timer (v2) |
 | `drawOffer`   | both ways  | §9 / `DRAW_PROTO.md`            | per-seat view of the open-offer state machine |
-| `roomEnd`     | server→client| §9 / `DRAW_PROTO.md`           | terminal-state broadcast (`draw_agreement` only in v1) |
+| `roomEnd`     | server→client| §9 / `DRAW_PROTO.md` / `CLOCK.md` §7 | terminal-state broadcast; `draw_agreement` or `time` + optional `winner` (v2) |
 | `error`       | server→client| §3.3                           | NACK with `code` + resync `state`           |
 
-A frame is "control" iff the room persists it (snapshots `drawOffer`,
-`drawBy`, `ended` in §4) or it terminates the room. `move` is the only one
-that advances the ply counter; all other control frames are idempotent
-w.r.t. the move list. Frames that are neither control nor a `move` (e.g.
-`ping`, future `chat`) carry no room state and are not persisted.
+A frame is "control" iff the room persists it (snapshots `clock`,
+`drawOffer`, `drawBy`, `ended` in §4) or it terminates the room.
+`move` is the only one that advances the ply counter; all other
+control frames are idempotent w.r.t. the move list. Frames that are
+neither control nor a `move` (e.g. `ping`, future `chat`) carry no
+room state and are not persisted.
 
 ---
 
@@ -323,7 +325,8 @@ unless the server closes it).
 
 ### 8.3 explicit non-goals for v1
 
-- No clocks yet (resign and draw agreement are live; see §9).
+- Resign, draw agreement, and clocks are live (see §9 + `CLOCK.md`).
+  No checkmate / stalemate / 50-move server-side enforcement yet.
 - No `room_full`: spectators are allowed instead.
 - Seats are not persisted across DO eviction; a respawned room re-seats the
   first joiners (§4.7).
@@ -353,7 +356,8 @@ types). Three client messages are added — `offerDraw{code, by}`,
   flagged in `DRAW_PROTO.md` §8).
 - **Persistence.** `RoomSnapshot` carries `drawOffer`, `drawBy` and `ended`
   (§4), so a revived room keeps an open offer and resumes a terminal one.
-- **Terminal state.** An agreed draw is the room's only terminal state in v1;
+- **Terminal state.** An agreed draw and a clock timeout
+  (`roomEnd{reason:'time', winner}`, t56) are the two terminals in v1;
   checkmate / stalemate / 50-move are not yet enforced server-side.
 - **Validation.** `validateDraw()` (`worker/src/validate.ts`) shape-checks the
   payload; `invalid_draw` is kept distinct from `invalid_move` on the wire.

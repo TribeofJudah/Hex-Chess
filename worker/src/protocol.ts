@@ -6,8 +6,13 @@
  * inbound client frames and encodes server frames.
  */
 
-/** Bumped whenever a message shape changes incompatibly. */
-export const PROTOCOL_VERSION = 1
+/**
+ * Bumped whenever a message shape changes incompatibly. `2` (t56): `welcome`
+ * gained the clock and the terminal flag, and `roomEnd.reason` gained `time`
+ * — a v1 client cannot read either, so it is rejected at join instead of
+ * playing a clock-less board.
+ */
+export const PROTOCOL_VERSION = 2
 
 export type Seat = 'white' | 'black' | 'spectator'
 export type PieceColor = 'white' | 'black'
@@ -92,6 +97,10 @@ export interface WelcomeMsg {
   protocol: number
   revision: number
   moves: WireMove[]
+  /** The room's clock (t56), so a joiner starts with the right numbers. */
+  clock: ClockWire
+  /** The room is over (a draw was agreed, or a seat flagged). */
+  ended: boolean
 }
 export interface StateMsg {
   v: number
@@ -132,6 +141,23 @@ export interface PongMsg {
 }
 
 /**
+ * The room's clock as of this frame (t56): milliseconds remaining per seat,
+ * the side to move (whose clock is burning), and whether a clock is running
+ * at all. Broadcast at 1 Hz while the game is live; carried on `welcome` too.
+ */
+export interface ClockWire {
+  white: number
+  black: number
+  turn: PieceColor
+  running: boolean
+}
+export interface ClockMsg extends ClockWire {
+  v: number
+  type: 'clock'
+  code: string
+}
+
+/**
  * Draw-offer state, delivered **per seat**: the offerer receives `awaiting`
  * (they must wait), the opponent and spectators receive `offered` (it is open
  * to them). `idle` clears the offer.
@@ -143,12 +169,16 @@ export interface DrawOfferMsg {
   state: 'offered' | 'awaiting' | 'idle'
   by: Seat
 }
-/** Terminal frame: the room is over. Only `draw_agreement` exists in v1 (t48). */
+/**
+ * Terminal frame: the room is over. `draw_agreement` (t48) or `time` (t56,
+ * a seat's clock reached zero — `winner` names the other seat).
+ */
 export interface RoomEndMsg {
   v: number
   type: 'roomEnd'
   code: string
-  reason: 'draw_agreement'
+  reason: 'draw_agreement' | 'time'
+  winner?: PieceColor
 }
 
 export type ServerMsg =
@@ -160,6 +190,7 @@ export type ServerMsg =
   | PongMsg
   | DrawOfferMsg
   | RoomEndMsg
+  | ClockMsg
 
 export function encode(msg: ServerMsg): string {
   return JSON.stringify(msg)

@@ -3,7 +3,7 @@ import { decodeClient, encode, PROTOCOL_VERSION } from '../src/protocol'
 
 describe('worker protocol codec', () => {
   it('exposes the current version', () => {
-    expect(PROTOCOL_VERSION).toBe(1)
+    expect(PROTOCOL_VERSION).toBe(2)
   })
 
   it('decodes every client frame shape', () => {

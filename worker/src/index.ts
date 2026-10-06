@@ -1,3 +1,4 @@
+import { TICK_MS } from './clock'
 import { PROTOCOL_VERSION, decodeClient, encode } from './protocol'
 import { RoomCore, type Conn, type RoomSnapshot } from './room'
 
@@ -12,6 +13,10 @@ import { RoomCore, type Conn, type RoomSnapshot } from './room'
  * object (after eviction) hydrates its RoomCore from it, so the room keeps its
  * code and move history. Writes are fire-and-forget — DO storage is coalesced
  * and flushed before eviction, so awaiting would only add latency.
+ *
+ * Clock (t56): the DO owns the 1 Hz tick. An alarm is a Durable Object's only
+ * timer and it survives eviction, so a woken object re-hydrates its core and
+ * keeps counting from the persisted `since` — the core itself holds no timers.
  */
 
 const STORAGE_KEY = 'room'
@@ -38,17 +43,23 @@ export default {
 /** One instance per room, addressed by name. */
 export class RoomDO {
   private core: RoomCore | null = null
+  /** A 1 Hz clock alarm is scheduled (t56). */
+  private ticking = false
 
   constructor(private ctx: DurableObjectState) {}
 
-  async fetch(req: Request): Promise<Response> {
-    const path = new URL(req.url).pathname
-    const code = (path.split('/').pop() ?? '').toUpperCase()
+  /** The room's core, hydrated from storage on a cold start (t44). */
+  private async load(): Promise<RoomCore> {
     if (!this.core) {
       const saved = await this.ctx.storage.get<RoomSnapshot>(STORAGE_KEY)
-      this.core = new RoomCore(code, saved)
+      // The DO id is the room code (`idFromName(code)` in the Worker).
+      this.core = new RoomCore(this.ctx.id.name ?? '', saved)
     }
-    const core = this.core
+    return this.core
+  }
+
+  async fetch(_req: Request): Promise<Response> {
+    const core = await this.load()
 
     const pair = new WebSocketPair()
     const client = pair[0]
@@ -80,10 +91,12 @@ export class RoomDO {
         return // must join before any other frame
       }
       core.receive(conn, msg)
-      // join/resync/ping never change room state; a move or a draw frame might.
-      if (msg.type !== 'join' && msg.type !== 'resync' && msg.type !== 'ping') {
+      // resync/ping never change room state; a join may start the clock, a
+      // move or draw frame may stop it.
+      if (msg.type !== 'resync' && msg.type !== 'ping') {
         this.persist(core)
       }
+      this.arm(core)
     })
 
     server.addEventListener('close', () => {
@@ -91,6 +104,26 @@ export class RoomDO {
     })
 
     return new Response(null, { status: 101, webSocket: client })
+  }
+
+  /** The 1 Hz tick (t56): broadcast the clock, flag a seat, re-arm. */
+  async alarm(): Promise<void> {
+    const core = await this.load()
+    if (core.tick(Date.now())) {
+      this.ticking = true
+      await this.ctx.storage.setAlarm(Date.now() + TICK_MS)
+    } else {
+      // No clock running (the room ended, or it never started).
+      this.ticking = false
+      this.persist(core)
+    }
+  }
+
+  /** Arm the tick alarm iff a clock is burning and none is armed (t56). */
+  private arm(core: RoomCore): void {
+    if (!core.clockRunning || this.ticking) return
+    this.ticking = true
+    void this.ctx.storage.setAlarm(Date.now() + TICK_MS)
   }
 
   /** Write the room's state so an evicted DO resumes with history (t44). */

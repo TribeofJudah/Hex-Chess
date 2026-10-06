@@ -118,3 +118,32 @@ wire shapes appended to `claudedocs/ROOM_PROTO.md` §9.
 
 Tests: `test/draw.test.ts` — happy path, decline, cross-turn, no-offer /
 self-accept, spectator, game-over, revive, malformed payload.
+
+## Clock (t56)
+
+A server-authoritative chess clock. Spec: `claudedocs/CLOCK.md`.
+
+- **Time control.** 5 min + 3 s increment, fixed constants in `src/clock.ts`
+  (there is no `createRoom` call to negotiate with — the code is generated
+  client-side). The clock is initialised at room creation and **runs** from the
+  second `join`; a dropped socket does not pause it.
+- **Derived, not counted.** `ClockState { white, black, since }` stores each
+  seat's remaining time _as of_ `since`, the epoch ms the running seat started
+  burning. A seat's real remaining time is `stored - (now - since)`, so no
+  storage write is needed per tick.
+- **Tick driver.** The DO's alarm — its only timer, and one that survives
+  eviction — calls `RoomCore.tick(now)` at 1 Hz while a clock burns and
+  broadcasts `clock{white, black, turn, running}`. The alarm stops when the
+  clock does. `RoomCore` holds no timer: `now` is injected via the constructor.
+- **Flag fall.** At zero the room ends: a final `clock` at `0`, then
+  `roomEnd{reason:'time', winner}`. The room is terminal and refuses moves.
+- **Protocol.** `PROTOCOL_VERSION` **1 → 2**: `welcome` gained `clock` and
+  `ended`; `roomEnd.reason` gained `'time'`. The client copy
+  (`src/ui/protocol.ts`) must bump in the same commit.
+- **Persistence.** `RoomSnapshot` carries `clock`, so an evicted room resumes
+  with the right numbers; a room woken after a clock expired flags on its first
+  tick.
+
+Tests: `test/clock.test.ts` — burn only the side to move, tick cadence,
+increment + hand-over, flag fall, no move after the end, revive mid-game, flag
+after eviction, draw stops the clock.
