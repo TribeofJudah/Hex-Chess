@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   decode,
   encode,
+  ERROR_CODES,
   PROTOCOL_VERSION,
   type ClientMsg,
   type ServerMsg,
@@ -94,5 +95,48 @@ describe('protocol', () => {
     expect(decode('{ "type": "welcome" }')).toBeNull() // missing v
     expect(decode('{ "v": 1, "type": "welcome", "v2": 3 }')).not.toBeNull()
     expect(decode('{ "v": 1, "type": "surprise" }')).toBeNull() // unknown type
+  })
+
+  it('round-trips the draw-agreement frames (t48)', () => {
+    const messages: Array<ClientMsg | ServerMsg> = [
+      // client -> server
+      { v: 1, type: 'offerDraw', code: 'ABCD', by: 'white' },
+      { v: 1, type: 'acceptDraw', code: 'ABCD' },
+      { v: 1, type: 'declineDraw', code: 'ABCD' },
+      // server -> client
+      {
+        v: 1,
+        type: 'drawOffer',
+        code: 'ABCD',
+        state: 'offered',
+        by: 'white',
+      },
+      {
+        v: 1,
+        type: 'drawOffer',
+        code: 'ABCD',
+        state: 'awaiting',
+        by: 'black',
+      },
+      { v: 1, type: 'drawOffer', code: 'ABCD', state: 'idle', by: 'black' },
+      { v: 1, type: 'roomEnd', code: 'ABCD', reason: 'draw_agreement' },
+    ]
+    for (const msg of messages) {
+      expect(JSON.parse(encode(msg))).toEqual(msg)
+      if (
+        msg.type === 'offerDraw' ||
+        msg.type === 'acceptDraw' ||
+        msg.type === 'declineDraw'
+      ) {
+        // The client decode() is inbound-only: client frames never parse.
+        expect(decode(encode(msg))).toBeNull()
+      } else {
+        expect(decode(encode(msg))).toEqual(msg)
+      }
+    }
+  })
+
+  it('lists invalid_draw among the error codes (t48)', () => {
+    expect(ERROR_CODES).toContain('invalid_draw')
   })
 })

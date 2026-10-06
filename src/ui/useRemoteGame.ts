@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { glinskiRules } from '../rules/adapter'
-import type { PieceKind } from './hexMath'
+import type { PieceColor, PieceKind } from './hexMath'
 import {
   decode,
   encode,
@@ -9,7 +9,12 @@ import {
   type Seat,
   type WireMove,
 } from './protocol'
-import { useGame, type GameRules, type UseGameResult } from './useGame'
+import {
+  useGame,
+  type DrawOfferKind,
+  type GameRules,
+  type UseGameResult,
+} from './useGame'
 
 /**
  * Remote-play session hook (T-remote-play, t39).
@@ -66,6 +71,10 @@ export interface UseRemoteGameResult extends UseGameResult {
   error?: string
   /** Play a move and stream it (thin alias over `applyMove`). */
   sendMove: (from: string, to: string, promotion?: PieceKind) => void
+  /** Offer/accept/decline a draw over the wire (t49): the offerDraw /
+      acceptDraw / declineDraw frames. The room derives the acting seat from
+      the connection; only the offer frame carries an advisory `by`. */
+  sendDraw: (kind: DrawOfferKind) => void
   leave: () => void
 }
 
@@ -89,6 +98,10 @@ function randomClientId(): string {
 
 /** Statuses in which we may stream a local move to the server. */
 const SENDABLE: readonly RemoteStatus[] = ['waiting', 'playing']
+
+/** Narrow a wire seat to the two playable colors; spectators cannot act. */
+const colorOf = (seat: Seat): PieceColor | null =>
+  seat === 'spectator' ? null : seat
 
 export function useRemoteGame(
   roomCode: string,
@@ -134,6 +147,31 @@ export function useRemoteGame(
     for (const m of moves) g.applyMove(m.from, m.to, m.promotion)
     lastSentRef.current = moves.length
   }, [])
+
+  /** Open, accept or decline a draw over the wire (t49). Silently inert when
+      no room can take it (not sendable, or a spectator offering). */
+  const sendDraw = useCallback(
+    (kind: DrawOfferKind) => {
+      if (!SENDABLE.includes(status)) return
+      if (kind === 'offer') {
+        const by = colorOf(seat)
+        if (!by) return
+        send({
+          v: PROTOCOL_VERSION,
+          type: 'offerDraw',
+          code: roomCode,
+          by,
+        })
+        return
+      }
+      send({
+        v: PROTOCOL_VERSION,
+        type: kind === 'accept' ? 'acceptDraw' : 'declineDraw',
+        code: roomCode,
+      })
+    },
+    [send, roomCode, seat, status],
+  )
 
   useEffect(() => {
     closedByUsRef.current = false
@@ -204,10 +242,29 @@ export function useRemoteGame(
             socketRef.current?.close()
             return
           }
+          // A draw-frame NACK (t48: not_your_turn / no_open_offer /
+          // game_over) is a soft refusal — the follow-up state push resyncs
+          // the board, so don't tear the room down over it.
+          if (msg.code === 'invalid_draw') break
           setError(msg.message)
           setStatus('error')
           break
         }
+        case 'drawOffer': {
+          // Mirror the per-seat view verbatim (t48): 'awaiting' on the
+          // offerer's connection, 'offered' on the answerer's; 'idle' clears.
+          const by = colorOf(msg.by)
+          if (by) {
+            gameRef.current.recvDrawOffer(
+              msg.state === 'idle' ? null : { state: msg.state, by },
+            )
+          }
+          break
+        }
+        case 'roomEnd':
+          // Terminal draw-agreement frame (t48): the room is over.
+          gameRef.current.recvRoomEnd()
+          break
         case 'pong':
           break
       }
@@ -305,6 +362,10 @@ export function useRemoteGame(
     ...(serverProtocol !== undefined ? { serverProtocol } : {}),
     ...(error !== undefined ? { error } : {}),
     sendMove: game.applyMove,
+    sendDraw,
+    // The wire half of chooseOffer (t49): nothing is dispatched locally
+    // because the state updates arrive as the server's per-seat frames.
+    chooseOffer: sendDraw,
     leave,
   }
 }

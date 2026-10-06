@@ -204,6 +204,21 @@ export interface PendingPromotion {
   options: PieceKind[]
 }
 
+/** Draw-offer view mirrored from the room (t48) or parked by the local
+    machine (t49): what the wire calls drawOffer{state, by}, narrowed to the
+    two seated colors. */
+export interface DrawOfferView {
+  /** 'offered' — an offer is open to you (the answerer's view); 'awaiting' —
+      your own offer is in flight (the offerer's per-seat view). */
+  state: 'offered' | 'awaiting'
+  /** Seat that most recently acted on the offer (the opener, or the seat
+      that declined it). */
+  by: PieceColor
+}
+
+/** One draw-offer verb (t49). */
+export type DrawOfferKind = 'offer' | 'accept' | 'decline'
+
 interface GameState {
   position: BoardPieces
   turn: PieceColor
@@ -216,6 +231,8 @@ interface GameState {
   lastMove: [string, string] | null
   /** Parked last-rank pawn move awaiting the human kind choice (t45). */
   pendingPromotion: PendingPromotion | null
+  /** Open draw-agreement offer (t48/t49); null when none is open. */
+  drawOffer: DrawOfferView | null
   keyCounts: Record<string, number>
   gameOver: GameOver | null
 }
@@ -232,6 +249,7 @@ function stateFor(position: BoardPieces, turn: PieceColor): GameState {
     halfmove: 0,
     lastMove: null,
     pendingPromotion: null,
+    drawOffer: null,
     keyCounts: { [positionKey(position)]: 1 },
     gameOver: null,
   }
@@ -266,6 +284,12 @@ type GameAction =
   | { type: 'draw' }
   | { type: 'choosePromotion'; kind: PieceKind; rules: GameRules }
   | { type: 'cancelPromotion' }
+  /** Draw by agreement (t49 local path). */
+  | { type: 'chooseOffer'; kind: DrawOfferKind }
+  /** Server mirror: a drawOffer{state,by} frame; 'idle' arrives as null. */
+  | { type: 'recvDrawOffer'; view: DrawOfferView | null }
+  /** Server mirror: roomEnd{reason:'draw_agreement'} (t48 terminal). */
+  | { type: 'recvRoomEnd' }
 
 interface GameStore {
   game: GameState
@@ -313,8 +337,10 @@ function play(
     captured,
     halfmove,
     lastMove: [from, to],
-    // Any settled move ends a parked promotion (t45).
+    // Any settled move ends a parked promotion (t45). An open draw offer is
+    // NOT cleared by a move — only accept/decline end it (t48 state machine).
     pendingPromotion: null,
+    drawOffer: game.drawOffer,
     keyCounts: { ...game.keyCounts, [key]: (game.keyCounts[key] ?? 0) + 1 },
     gameOver: null,
   }
@@ -452,11 +478,13 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           ...game,
           gameOver: { kind: 'resign', winner: other(game.turn) },
           pendingPromotion: null,
+          drawOffer: null,
         },
       }
     }
     case 'draw': {
-      // Hotseat: both players share the screen, so a draw offer is agreed at once.
+      // Hotseat: both players share the screen, so a draw offer is agreed at
+      // once. Any open negotiated offer (t49) collapses into this end.
       const { game } = store
       if (game.gameOver) return store
       return {
@@ -465,9 +493,57 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           ...game,
           gameOver: { kind: 'agreement' },
           pendingPromotion: null,
+          drawOffer: null,
         },
       }
     }
+    case 'chooseOffer': {
+      // The negotiated draw of t49 (the t48 room contract mirrored locally:
+      // offer on your own turn, a re-offer is an idempotent no-op, the
+      // opponent answers — on the offerer's own turn too, as worker
+      // draw.test proves; accept/decline are not turn-gated).
+      const { game } = store
+      if (game.gameOver) return store
+      if (action.kind === 'offer') {
+        if (game.drawOffer) return store
+        return {
+          ...store,
+          game: { ...game, drawOffer: { state: 'offered', by: game.turn } },
+        }
+      }
+      if (!game.drawOffer || game.drawOffer.state !== 'offered') return store
+      if (action.kind === 'decline') {
+        return { ...store, game: { ...game, drawOffer: null } }
+      }
+      return {
+        ...store,
+        game: {
+          ...game,
+          gameOver: { kind: 'agreement' },
+          pendingPromotion: null,
+          drawOffer: null,
+        },
+      }
+    }
+    case 'recvDrawOffer':
+      // Wire mirror (t48): apply the per-seat drawOffer frame verbatim; the
+      // 'idle' frame arrives as null. No local guards — the room is
+      // authoritative for what this connection sees.
+      return {
+        ...store,
+        game: { ...store.game, drawOffer: action.view },
+      }
+    case 'recvRoomEnd':
+      // Wire mirror (t48): roomEnd{reason:'draw_agreement'} ends the room.
+      return {
+        ...store,
+        game: {
+          ...store.game,
+          gameOver: { kind: 'agreement' },
+          pendingPromotion: null,
+          drawOffer: null,
+        },
+      }
   }
 }
 
@@ -501,6 +577,16 @@ export interface UseGameResult {
   pendingPromotion: PendingPromotion | null
   /** Complete the parked promotion move with the chosen piece kind (t45). */
   choosePromotion(kind: PieceKind): void
+  /** Mirrored draw offer (t48/t49): null when none is open. */
+  drawOffer: DrawOfferView | null
+  /** Open (on the mover's own turn), accept or decline a draw offer (t49).
+      Local path: the reducer's machine. Remote: useRemoteGame overrides this
+      to send the wire frame; state updates mirror the server's frames. */
+  chooseOffer(kind: DrawOfferKind): void
+  /** Wire mirror: apply a drawOffer{state,by} frame, 'idle' as null. */
+  recvDrawOffer(view: DrawOfferView | null): void
+  /** Wire mirror: apply roomEnd{reason:'draw_agreement'} (t48 terminal). */
+  recvRoomEnd(): void
   undo(): void
   newGame(): void
   /** Jump the board view back to the position after `ply` half-moves (T14). */
@@ -565,6 +651,22 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [pendingPromotion])
+
+  // The engine accepts an open draw offer from the human (t49): the AI path
+  // is "the AI sees a draw offer and accepts". The engine never offers, so an
+  // open offer here is always the human's (by !== 'black'); the tick pattern
+  // matches the move-search effect above.
+  const drawOffer = game.drawOffer
+  const gameEnded = game.gameOver !== null
+  useEffect(() => {
+    if (!aiEnabled || !drawOffer || drawOffer.state !== 'offered') return
+    if (drawOffer.by === 'black' || gameEnded) return
+    const id = setTimeout(
+      () => dispatch({ type: 'chooseOffer', kind: 'accept' }),
+      0,
+    )
+    return () => clearTimeout(id)
+  }, [aiEnabled, drawOffer, gameEnded])
 
   const clickCell = (notation: string) => {
     // A board click while browsing returns to the live position first.
@@ -634,6 +736,10 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     loadFen,
     resign: () => dispatch({ type: 'resign' }),
     agreeDraw: () => dispatch({ type: 'draw' }),
+    drawOffer: game.drawOffer,
+    chooseOffer: (kind) => dispatch({ type: 'chooseOffer', kind }),
+    recvDrawOffer: (view) => dispatch({ type: 'recvDrawOffer', view }),
+    recvRoomEnd: () => dispatch({ type: 'recvRoomEnd' }),
   }
 }
 

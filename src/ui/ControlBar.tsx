@@ -13,8 +13,10 @@ export interface ControlBarProps {
   onAiDepthChange?: (depth: number) => void
   /** Side to move resigns (T16). */
   onResign?: () => void
-  /** Offer/agree a draw (T16). */
-  onOfferDraw?: () => void
+  /** Offer a draw to the opponent (T16; t49 adds the negotiated flow).
+      Callers omit it to hide the button (game over, offer open, not the
+      local turn, room not connected). */
+  onOfferDraw?: (() => void) | undefined
   onExportPgn?: () => void
   /** Create a remote room and navigate to it (T-remote-play, t39). */
   onCreateRoom?: () => void
@@ -95,7 +97,7 @@ export function ControlBar({
         onClick={onOfferDraw}
         disabled={!onOfferDraw}
       >
-        Draw
+        Offer draw
       </button>
       <button
         type="button"

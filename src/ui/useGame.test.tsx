@@ -429,3 +429,82 @@ describe('useGame human promotion (t45)', () => {
     })
   })
 })
+
+describe('useGame draw offer (t49)', () => {
+  it('opens the offer for the side to move; a re-offer is a no-op', () => {
+    const { result } = renderHook(() => useGame())
+    expect(result.current.drawOffer).toBeNull()
+    act(() => result.current.chooseOffer('offer'))
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'white' })
+    // Idempotent re-offer (t48): nothing stacks, nothing else changes.
+    act(() => result.current.chooseOffer('offer'))
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'white' })
+    expect(result.current.moves).toEqual([])
+    expect(result.current.turn).toBe('white')
+    expect(result.current.gameOver).toBeNull()
+  })
+
+  it('lets the opponent decline and clear the offer', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.chooseOffer('offer'))
+    act(() => result.current.chooseOffer('decline'))
+    expect(result.current.drawOffer).toBeNull()
+    expect(result.current.gameOver).toBeNull()
+    expect(result.current.moves).toEqual([])
+  })
+
+  it('lets the opponent accept and end the game by agreement', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.chooseOffer('offer'))
+    act(() => result.current.chooseOffer('accept'))
+    expect(result.current.gameOver).toEqual({ kind: 'agreement' })
+    expect(result.current.drawOffer).toBeNull()
+    // Nothing opens after the game has ended.
+    act(() => result.current.chooseOffer('offer'))
+    expect(result.current.drawOffer).toBeNull()
+  })
+
+  it('only answers an offer that is open and answerable', () => {
+    const { result } = renderHook(() => useGame())
+    // Accept/decline with no offer open are no-ops (t48 no_open_offer).
+    act(() => result.current.chooseOffer('accept'))
+    expect(result.current.gameOver).toBeNull()
+    // The offerer's own 'awaiting' view (mirrored from the wire) is theirs
+    // to wait out — not to answer.
+    act(() => result.current.recvDrawOffer({ state: 'awaiting', by: 'white' }))
+    act(() => result.current.chooseOffer('accept'))
+    expect(result.current.gameOver).toBeNull()
+    expect(result.current.drawOffer).toEqual({ state: 'awaiting', by: 'white' })
+  })
+
+  it('the engine accepts an open human draw offer (AI path, t49)', () => {
+    vi.useFakeTimers()
+    try {
+      const hook = renderHook(() => useGame(glinskiRules))
+      act(() => hook.result.current.toggleAi())
+      act(() => hook.result.current.chooseOffer('offer'))
+      expect(hook.result.current.drawOffer).toEqual({
+        state: 'offered',
+        by: 'white',
+      })
+      act(() => vi.runAllTimers())
+      expect(hook.result.current.gameOver).toEqual({ kind: 'agreement' })
+      expect(hook.result.current.drawOffer).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('mirrors the drawOffer and roomEnd frames from the room (t48/t49)', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.recvDrawOffer({ state: 'offered', by: 'black' }))
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'black' })
+    // The idle frame clears the offer.
+    act(() => result.current.recvDrawOffer(null))
+    expect(result.current.drawOffer).toBeNull()
+    act(() => result.current.recvDrawOffer({ state: 'awaiting', by: 'white' }))
+    act(() => result.current.recvRoomEnd())
+    expect(result.current.gameOver).toEqual({ kind: 'agreement' })
+    expect(result.current.drawOffer).toBeNull()
+  })
+})

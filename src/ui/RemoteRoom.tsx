@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { ControlBar } from './ControlBar'
+import { DrawOfferBanner } from './DrawOfferBanner'
 import { GameOverBanner } from './GameOverBanner'
 import { HexBoard } from './HexBoard'
 import { MoveList } from './MoveList'
@@ -29,6 +32,23 @@ const STATUS_LABEL: Record<RemoteStatus, string> = {
 export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
   const game = useRemoteGame(roomCode, connect ? { connect } : {})
   const canPlay = game.status === 'playing' || game.status === 'waiting'
+  const [scanlines, setScanlines] = useState(true)
+  // Offer affordances (t49): only the local seat's own turn, with a peer
+  // able to answer, no offer already open and a live game — the room double-
+  // enforces the same rules on the wire.
+  const canOfferDraw =
+    canPlay &&
+    game.peerConnected &&
+    (game.seat === 'white' || game.seat === 'black') &&
+    game.turn === game.seat &&
+    !game.drawOffer &&
+    !game.gameOver
+  // Only the opponent of the offerer sees the answer buttons (t48 per-seat
+  // view); spectators watch without a vote.
+  const mayAnswerDraw =
+    game.seat !== 'spectator' &&
+    game.drawOffer !== null &&
+    game.drawOffer.by !== game.seat
 
   let status = STATUS_LABEL[game.status]
   if (game.status === 'playing') {
@@ -66,6 +86,12 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
         </button>
       </div>
 
+      <ControlBar
+        scanlines={scanlines}
+        onToggleScanlines={() => setScanlines((on) => !on)}
+        onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
+      />
+
       <div className="app__layout">
         <section
           className="app__board-container"
@@ -84,6 +110,12 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
             inCheckCell={game.inCheckCell}
             promotion={game.pendingPromotion}
             onPromotionChoose={game.choosePromotion}
+          />
+          <DrawOfferBanner
+            offer={game.drawOffer && !game.gameOver ? game.drawOffer : null}
+            canAnswer={mayAnswerDraw}
+            onAccept={() => game.chooseOffer('accept')}
+            onDecline={() => game.chooseOffer('decline')}
           />
           {game.gameOver ? (
             <GameOverBanner

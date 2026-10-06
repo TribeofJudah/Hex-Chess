@@ -306,3 +306,123 @@ describe('useRemoteGame reconnect', () => {
     expect(result.current.status).toBe('waiting')
   })
 })
+
+describe('useRemoteGame draw agreement (t49)', () => {
+  it('sends the offerDraw / acceptDraw / declineDraw wire frames', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    // The offer names the room and this connection's seat (advisory `by`;
+    // the room derives the acting seat from the connection).
+    act(() => result.current.chooseOffer('offer'))
+    expect(current().last()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'offerDraw',
+      code: 'ABCD',
+      by: 'white',
+    })
+    // Accept/decline carry only the room code.
+    act(() => result.current.chooseOffer('accept'))
+    expect(current().last()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'acceptDraw',
+      code: 'ABCD',
+    })
+    act(() => result.current.chooseOffer('decline'))
+    expect(current().last()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'declineDraw',
+      code: 'ABCD',
+    })
+    // A spectator's connection cannot open an offer (t48: seat-gated).
+    act(() =>
+      current().recv(welcomeMsg({ seat: 'spectator', revision: 0, moves: [] })),
+    )
+    const before = current().sent.length
+    act(() => result.current.chooseOffer('offer'))
+    expect(current().sent.length).toBe(before)
+    // And there is nothing to offer once the socket is ours-but-closed.
+    act(() => result.current.leave())
+    const count = current().sent.length
+    act(() => result.current.chooseOffer('accept'))
+    expect(current().sent.length).toBe(count)
+  })
+
+  it('mirrors the per-seat drawOffer frames and the terminal roomEnd', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    // The offerer's own view: awaiting (this seat offered).
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'drawOffer',
+        code: 'ABCD',
+        state: 'awaiting',
+        by: 'white',
+      }),
+    )
+    expect(result.current.drawOffer).toEqual({ state: 'awaiting', by: 'white' })
+    // ...then the opponent opens one: the offered view answers it.
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'drawOffer',
+        code: 'ABCD',
+        state: 'offered',
+        by: 'black',
+      }),
+    )
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'black' })
+    // The idle frame clears; offer -> roomEnd ends the game by agreement.
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'drawOffer',
+        code: 'ABCD',
+        state: 'idle',
+        by: 'white',
+      }),
+    )
+    expect(result.current.drawOffer).toBeNull()
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'drawOffer',
+        code: 'ABCD',
+        state: 'offered',
+        by: 'white',
+      }),
+    )
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'roomEnd',
+        code: 'ABCD',
+        reason: 'draw_agreement',
+      }),
+    )
+    expect(result.current.gameOver).toEqual({ kind: 'agreement' })
+    expect(result.current.drawOffer).toBeNull()
+  })
+
+  it('treats an invalid_draw NACK as a soft refusal, not a room error', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'error',
+        code: 'invalid_draw',
+        message: 'not_your_turn',
+      }),
+    )
+    // The room keeps breathing; a follow-up state push resyncs the board.
+    expect(result.current.status).toBe('waiting')
+    expect(result.current.error).toBeUndefined()
+  })
+})

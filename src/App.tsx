@@ -6,6 +6,7 @@ import { MoveList } from './ui/MoveList'
 import { GameOverBanner } from './ui/GameOverBanner'
 import { RemoteRoom } from './ui/RemoteRoom'
 import { useGame, type GameOver } from './ui/useGame'
+import { DrawOfferBanner } from './ui/DrawOfferBanner'
 import { downloadPgn, toPgn } from './ui/pgn'
 import { navigate, newRoomCode, useRoute } from './ui/router'
 import { glinskiRules } from './rules/adapter'
@@ -32,6 +33,14 @@ function HotseatGame() {
     ? gameOverText(game.gameOver)
     : `${game.turn === 'white' ? 'White' : 'Black'} to move`
 
+  // Offer affordances (t49): the local machine answers its own prompts —
+  // hidden while the game is over or an offer is already open, and on the
+  // engine's turn (AI never offers).
+  const canOfferDraw =
+    !game.gameOver &&
+    !game.drawOffer &&
+    !(game.aiEnabled && game.turn === 'black')
+
   return (
     <main className="app">
       <header className="app__header">
@@ -50,7 +59,7 @@ function HotseatGame() {
         aiDepth={game.aiDepth}
         onAiDepthChange={game.setAiDepth}
         onResign={game.resign}
-        onOfferDraw={game.agreeDraw}
+        onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
         onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
         onCreateRoom={() => navigate({ name: 'play', roomCode: newRoomCode() })}
       />
@@ -78,6 +87,12 @@ function HotseatGame() {
             inCheckCell={game.inCheckCell}
             promotion={game.pendingPromotion}
             onPromotionChoose={game.choosePromotion}
+          />
+          <DrawOfferBanner
+            offer={game.drawOffer && !game.gameOver ? game.drawOffer : null}
+            canAnswer={!game.aiEnabled}
+            onAccept={() => game.chooseOffer('accept')}
+            onDecline={() => game.chooseOffer('decline')}
           />
           {game.gameOver ? (
             <GameOverBanner

@@ -21,6 +21,7 @@ export type ErrCode =
   | 'room_full'
   | 'bad_message'
   | 'invalid_move'
+  | 'invalid_draw'
   | 'stale_move'
   | 'unknown_room'
   | 'internal'
@@ -30,6 +31,7 @@ export const ERROR_CODES: readonly ErrCode[] = [
   'room_full',
   'bad_message',
   'invalid_move',
+  'invalid_draw',
   'stale_move',
   'unknown_room',
   'internal',
@@ -74,7 +76,26 @@ export interface PingMsg {
   t: number
 }
 
-export type ClientMsg = JoinMsg | MoveMsg | ResyncMsg | PingMsg
+/** Draw agreement (t48). `by` is advisory: the DO uses the connection's seat. */
+export interface OfferDrawMsg {
+  v: number
+  type: 'offerDraw'
+  code: string
+  by: Seat
+}
+export interface AcceptDrawMsg {
+  v: number
+  type: 'acceptDraw'
+  code: string
+}
+export interface DeclineDrawMsg {
+  v: number
+  type: 'declineDraw'
+  code: string
+}
+export type DrawMsg = OfferDrawMsg | AcceptDrawMsg | DeclineDrawMsg
+
+export type ClientMsg = JoinMsg | MoveMsg | ResyncMsg | PingMsg | DrawMsg
 
 // ---- server → client -------------------------------------------------------
 
@@ -127,8 +148,35 @@ export interface PongMsg {
   t: number
 }
 
+/**
+ * Draw-offer state, delivered **per seat** (t48): the offerer receives
+ * `awaiting` (they wait), the opponent and spectators receive `offered` (it is
+ * open to them). `idle` clears the offer.
+ */
+export interface DrawOfferMsg {
+  v: number
+  type: 'drawOffer'
+  code: string
+  state: 'offered' | 'awaiting' | 'idle'
+  by: Seat
+}
+/** Terminal frame: the room is over. Only `draw_agreement` exists in v1 (t48). */
+export interface RoomEndMsg {
+  v: number
+  type: 'roomEnd'
+  code: string
+  reason: 'draw_agreement'
+}
+
 export type ServerMsg =
-  WelcomeMsg | StateMsg | MoveBroadcast | PeerMsg | ErrorMsg | PongMsg
+  | WelcomeMsg
+  | StateMsg
+  | MoveBroadcast
+  | PeerMsg
+  | ErrorMsg
+  | PongMsg
+  | DrawOfferMsg
+  | RoomEndMsg
 
 export function encode(msg: ClientMsg | ServerMsg): string {
   return JSON.stringify(msg)
@@ -157,6 +205,8 @@ export function decode(data: string): ServerMsg | null {
     case 'peer':
     case 'error':
     case 'pong':
+    case 'drawOffer':
+    case 'roomEnd':
       return raw as ServerMsg
     default:
       return null
