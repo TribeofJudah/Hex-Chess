@@ -132,12 +132,16 @@ A hostile or truncated frame therefore cannot crash the client — it is dropped
 5. **Leave / drop** — a closing socket frees its seat (unless the drop is a
    transient one being reclaimed within the grace window, §7) and broadcasts a
    new `peer`.
-6. **End / eviction (t44)** — the DO may evict when idle, but it persists one
-   `RoomSnapshot { fen, moves, revision }` to its storage after every accepted
-   move. A later `join` to the same code spawns a fresh DO that **hydrates** its
-   `RoomCore` from that snapshot, so the room resumes with the same code,
-   revision and move history. Persistence is per-room and has no TTL: a code
-   that has ever been played stays resumable.
+6. **End / eviction (t44, t48)** — the DO may evict when idle, but it persists
+   one `RoomSnapshot { fen, moves, revision, drawOffer?, drawBy?, ended? }`
+   to its storage after every **mutating** frame (an accepted `move`, an
+   accepted `offerDraw` that opens an offer, an accepted `acceptDraw` that
+   ends the room, an accepted `declineDraw` that clears an offer — the
+   `mutating` predicate is the one in `worker/src/room.ts`, §4 widens). A later
+   `join` to the same code spawns a fresh DO that **hydrates** its `RoomCore`
+   from that snapshot, so the room resumes with the same code, revision, move
+   history, draw-offer state and terminal state. Persistence is per-room and
+   has no TTL: a code that has ever been played stays resumable.
 7. **Seats are not persisted.** Seat assignment is live-connection state: on a
    respawn the seats are re-derived from the first joiners (first → `white`,
    second → `black`), exactly as for a brand-new room. A reconnecting client
@@ -197,6 +201,27 @@ Local moves are streamed by an effect gated on status being `waiting` or
 once ready, unless a `state`/`welcome` rebuild moves past it (which supersedes
 it). `lastSentRef` is the single source of truth for "how many plies have left
 this client", set by both paths (send and inbound-apply).
+
+### 5.1  Control frames (overview)
+
+§5 covers the `move` control frame. The room also carries the following
+control frames; full spec on each, including server-side rules, per-seat
+view, and validation, lives in the section noted.
+
+| control frame | direction  | section / spec                  | one-line                                    |
+|---------------|------------|---------------------------------|---------------------------------------------|
+| `move`        | client→server| §5 (above)                     | the only thing that mutates the ply counter |
+| `state`       | server→client| §3.2, §4                       | rebuild frame: revision + moves + occupants |
+| `welcome`     | server→client| §4, §6                         | post-`join` rebuild; carries `protocol`     |
+| `drawOffer`   | both ways  | §9 / `DRAW_PROTO.md`            | per-seat view of the open-offer state machine |
+| `roomEnd`     | server→client| §9 / `DRAW_PROTO.md`           | terminal-state broadcast (`draw_agreement` only in v1) |
+| `error`       | server→client| §3.3                           | NACK with `code` + resync `state`           |
+
+A frame is "control" iff the room persists it (snapshots `drawOffer`,
+`drawBy`, `ended` in §4) or it terminates the room. `move` is the only one
+that advances the ply counter; all other control frames are idempotent
+w.r.t. the move list. Frames that are neither control nor a `move` (e.g.
+`ping`, future `chat`) carry no room state and are not persisted.
 
 ---
 
@@ -298,7 +323,7 @@ unless the server closes it).
 
 ### 8.3 explicit non-goals for v1
 
-- No clocks, no resign over the wire yet (draw agreement landed in t48 — §9).
+- No clocks yet (resign and draw agreement are live; see §9).
 - No `room_full`: spectators are allowed instead.
 - Seats are not persisted across DO eviction; a respawned room re-seats the
   first joiners (§4.7).
