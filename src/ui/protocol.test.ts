@@ -10,23 +10,25 @@ import {
 
 describe('protocol', () => {
   it('exposes the current version', () => {
-    expect(PROTOCOL_VERSION).toBe(1)
+    // Bumped to 2 in t56 (clock + ended on welcome; clock frames; roomEnd.reason
+    // gained 'time' + optional winner).
+    expect(PROTOCOL_VERSION).toBe(2)
   })
 
   it('encodes every client message shape as JSON', () => {
     const messages: ClientMsg[] = [
-      { v: 1, type: 'join', room: 'ABCD', clientId: 'c1', protocol: 1 },
-      { v: 1, type: 'move', from: 'g1', to: 'f6', revision: 3 },
+      { v: PROTOCOL_VERSION, type: 'join', room: 'ABCD', clientId: 'c1', protocol: PROTOCOL_VERSION },
+      { v: PROTOCOL_VERSION, type: 'move', from: 'g1', to: 'f6', revision: 3 },
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'move',
         from: 'a1',
         to: 'b1',
         promotion: 'queen',
         revision: 4,
       },
-      { v: 1, type: 'resync', revision: 7 },
-      { v: 1, type: 'ping', t: 123 },
+      { v: PROTOCOL_VERSION, type: 'resync', revision: 7 },
+      { v: PROTOCOL_VERSION, type: 'ping', t: 123 },
     ]
     for (const msg of messages) {
       expect(JSON.parse(encode(msg))).toEqual(msg)
@@ -36,28 +38,28 @@ describe('protocol', () => {
   it('rejects client-only frames (decode is inbound-only)', () => {
     expect(
       decode(
-        encode({ v: 1, type: 'join', room: 'A', clientId: 'c', protocol: 1 }),
+        encode({ v: PROTOCOL_VERSION, type: 'join', room: 'A', clientId: 'c', protocol: PROTOCOL_VERSION }),
       ),
     ).toBeNull()
-    expect(decode(encode({ v: 1, type: 'resync', revision: 1 }))).toBeNull()
-    expect(decode(encode({ v: 1, type: 'ping', t: 1 }))).toBeNull()
+    expect(decode(encode({ v: PROTOCOL_VERSION, type: 'resync', revision: 1 }))).toBeNull()
+    expect(decode(encode({ v: PROTOCOL_VERSION, type: 'ping', t: 1 }))).toBeNull()
   })
 
   it('round-trips every server message shape', () => {
     const messages: ServerMsg[] = [
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'welcome',
         room: 'ABCD',
         clientId: 'c1',
         seat: 'white',
-        protocol: 1,
+        protocol: PROTOCOL_VERSION,
         revision: 0,
         moves: [],
       },
-      { v: 1, type: 'state', revision: 2, moves: [], reason: 'resync' },
+      { v: PROTOCOL_VERSION, type: 'state', revision: 2, moves: [], reason: 'resync' },
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'move',
         from: 'g1',
         to: 'f6',
@@ -67,19 +69,19 @@ describe('protocol', () => {
         by: 'c1',
       },
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'peer',
         connected: true,
         seats: { white: true, black: false },
       },
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'error',
         code: 'version_mismatch',
         message: 'nope',
         expectedProtocol: 2,
       },
-      { v: 1, type: 'pong', t: 123 },
+      { v: PROTOCOL_VERSION, type: 'pong', t: 123 },
     ]
     for (const msg of messages) {
       expect(decode(encode(msg))).toEqual(msg)
@@ -100,26 +102,26 @@ describe('protocol', () => {
   it('round-trips the draw-agreement frames (t48)', () => {
     const messages: Array<ClientMsg | ServerMsg> = [
       // client -> server
-      { v: 1, type: 'offerDraw', code: 'ABCD', by: 'white' },
-      { v: 1, type: 'acceptDraw', code: 'ABCD' },
-      { v: 1, type: 'declineDraw', code: 'ABCD' },
+      { v: PROTOCOL_VERSION, type: 'offerDraw', code: 'ABCD', by: 'white' },
+      { v: PROTOCOL_VERSION, type: 'acceptDraw', code: 'ABCD' },
+      { v: PROTOCOL_VERSION, type: 'declineDraw', code: 'ABCD' },
       // server -> client
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'drawOffer',
         code: 'ABCD',
         state: 'offered',
         by: 'white',
       },
       {
-        v: 1,
+        v: PROTOCOL_VERSION,
         type: 'drawOffer',
         code: 'ABCD',
         state: 'awaiting',
         by: 'black',
       },
-      { v: 1, type: 'drawOffer', code: 'ABCD', state: 'idle', by: 'black' },
-      { v: 1, type: 'roomEnd', code: 'ABCD', reason: 'draw_agreement' },
+      { v: PROTOCOL_VERSION, type: 'drawOffer', code: 'ABCD', state: 'idle', by: 'black' },
+      { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'draw_agreement' },
     ]
     for (const msg of messages) {
       expect(JSON.parse(encode(msg))).toEqual(msg)
@@ -133,6 +135,36 @@ describe('protocol', () => {
       } else {
         expect(decode(encode(msg))).toEqual(msg)
       }
+    }
+  })
+
+  it('round-trips the clock frames (t56)', () => {
+    const messages: Array<ClientMsg | ServerMsg> = [
+      // Welcome now carries the (optional) clock + ended flag.
+      {
+        v: PROTOCOL_VERSION,
+        type: 'welcome',
+        room: 'ABCD',
+        clientId: 'c1',
+        seat: 'white',
+        protocol: PROTOCOL_VERSION,
+        revision: 0,
+        moves: [],
+        clock: { whiteMs: 300_000, blackMs: 300_000, lastTickAt: 0, tickMs: 1000, incrementMs: 3_000 },
+        ended: false,
+      },
+      // Clock update from the server.
+      {
+        v: PROTOCOL_VERSION,
+        type: 'clock',
+        code: 'ABCD',
+        clock: { whiteMs: 295_000, blackMs: 300_000, lastTickAt: 5_000, tickMs: 1000, incrementMs: 3_000 },
+      },
+      // roomEnd gained 'time' + optional winner.
+      { v: PROTOCOL_VERSION, type: 'roomEnd', code: 'ABCD', reason: 'time', winner: 'black' },
+    ]
+    for (const msg of messages) {
+      expect(decode(encode(msg))).toEqual(msg)
     }
   })
 

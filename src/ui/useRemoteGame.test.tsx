@@ -209,9 +209,10 @@ describe('useRemoteGame version mismatch', () => {
     const { connect, current } = makeSocketFactory()
     const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
     act(() => current().open())
-    act(() => current().recv(welcomeMsg({ protocol: 2 })))
+    // Client is on v2 (t56); a v1 welcome is the canonical mismatch case.
+    act(() => current().recv(welcomeMsg({ protocol: 1 })))
     expect(result.current.status).toBe('version-mismatch')
-    expect(result.current.serverProtocol).toBe(2)
+    expect(result.current.serverProtocol).toBe(1)
     expect(current().closed).toBe(true)
   })
 

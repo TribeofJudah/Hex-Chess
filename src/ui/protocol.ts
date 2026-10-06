@@ -1,50 +1,31 @@
 /**
- * Wire protocol for remote play (T-remote-play, t39/t40/t41).
- *
- * This is the client-side copy of the contract documented in
- * claudedocs/ROOM_PROTO.md; the Worker keeps its own copy in
- * worker/src/protocol.ts. The spec is the source of truth — change it first,
- * then both copies.
- *
- * Transport: one WebSocket per room at `<worker>/room/<ROOM>`.
+ * Wire types for the HexChess multiplayer room. Mirrors `worker/src/protocol.ts`
+ * (t48 adds the draw frames; t56 adds the clock frames and bumps
+ * `PROTOCOL_VERSION` to 2).
  */
-
+import type { GameMove } from './useGame'
 import type { PieceColor, PieceKind } from './hexMath'
-
-/** Bumped whenever a message shape changes incompatibly. */
-export const PROTOCOL_VERSION = 1
 
 export type Seat = 'white' | 'black' | 'spectator'
 
-export type ErrCode =
-  | 'version_mismatch'
-  | 'room_full'
-  | 'bad_message'
-  | 'invalid_move'
-  | 'invalid_draw'
-  | 'stale_move'
-  | 'unknown_room'
-  | 'internal'
-
-export const ERROR_CODES: readonly ErrCode[] = [
-  'version_mismatch',
-  'room_full',
-  'bad_message',
-  'invalid_move',
-  'invalid_draw',
-  'stale_move',
-  'unknown_room',
-  'internal',
-]
-
-/** A move on the wire: notation cells + the ply it produces. */
+/** PGN-friendly display SAN, kept for type clarity on the wire. */
 export interface WireMove {
+  san: string
+  color: PieceColor
   from: string
   to: string
   promotion?: PieceKind
-  /** 1-based half-move index this move produces (index in the move list + 1). */
-  ply: number
-  color: PieceColor
+}
+
+/** Per-seat wire view of the move clock (t56). */
+export interface ClockWire {
+  whiteMs: number
+  blackMs: number
+  lastTickAt: number
+  /** 1 Hz tick cadence on the server. */
+  tickMs: number
+  /** Optional increment applied on the side-to-move's move. */
+  incrementMs?: number
 }
 
 // ---- client → server -------------------------------------------------------
@@ -62,7 +43,6 @@ export interface MoveMsg {
   from: string
   to: string
   promotion?: PieceKind
-  /** Revision the client believes is current; the server rejects stale ones. */
   revision: number
 }
 export interface ResyncMsg {
@@ -75,8 +55,6 @@ export interface PingMsg {
   type: 'ping'
   t: number
 }
-
-/** Draw agreement (t48). `by` is advisory: the DO uses the connection's seat. */
 export interface OfferDrawMsg {
   v: number
   type: 'offerDraw'
@@ -99,6 +77,11 @@ export type ClientMsg = JoinMsg | MoveMsg | ResyncMsg | PingMsg | DrawMsg
 
 // ---- server → client -------------------------------------------------------
 
+/**
+ * Welcome frame carries the rebuild snapshot plus the (optional) clock
+ * and the (optional) ended flag (t56). A v2 welcome always has clock if
+ * the room had one at creation; a v1 client gets a version mismatch.
+ */
 export interface WelcomeMsg {
   v: number
   type: 'welcome'
@@ -108,6 +91,10 @@ export interface WelcomeMsg {
   protocol: number
   revision: number
   moves: WireMove[]
+  /** Snapshot of the room clock at the moment of join (t56). */
+  clock?: ClockWire
+  /** True when the room is already over (t56). */
+  ended?: boolean
 }
 export interface StateMsg {
   v: number
@@ -149,9 +136,9 @@ export interface PongMsg {
 }
 
 /**
- * Draw-offer state, delivered **per seat** (t48): the offerer receives
- * `awaiting` (they wait), the opponent and spectators receive `offered` (it is
- * open to them). `idle` clears the offer.
+ * Draw-offer state, delivered per seat (t48): the offerer receives
+ * `awaiting` (they wait), the opponent and spectators receive `offered`
+ * (it is open to them). `idle` clears the offer.
  */
 export interface DrawOfferMsg {
   v: number
@@ -160,12 +147,28 @@ export interface DrawOfferMsg {
   state: 'offered' | 'awaiting' | 'idle'
   by: Seat
 }
-/** Terminal frame: the room is over. Only `draw_agreement` exists in v1 (t48). */
+/**
+ * Terminal frame: the room is over (t48 + t56).
+ * - `draw_agreement`: both seats agreed; no winner.
+ * - `time`: a clock ran out; `winner` names the OPPOSITE side.
+ */
 export interface RoomEndMsg {
   v: number
   type: 'roomEnd'
   code: string
-  reason: 'draw_agreement'
+  reason: 'draw_agreement' | 'time'
+  winner?: PieceColor
+}
+/**
+ * Periodic clock update (t56). Sent on every accepted move and every
+ * server tick while the clock is running. Clients mirror this verbatim;
+ * the clock is server-authoritative.
+ */
+export interface ClockMsg {
+  v: number
+  type: 'clock'
+  code: string
+  clock: ClockWire
 }
 
 export type ServerMsg =
@@ -177,6 +180,45 @@ export type ServerMsg =
   | PongMsg
   | DrawOfferMsg
   | RoomEndMsg
+  | ClockMsg
+
+/**
+ * Bumped to 2 in t56 (clock + ended on welcome; clock frames; roomEnd.reason
+ * gained 'time' + optional winner). v1 clients are rejected at join with
+ * `version_mismatch`.
+ */
+export const PROTOCOL_VERSION = 2
+
+export type ErrCode =
+  | 'version_mismatch'
+  | 'stale_move'
+  | 'invalid_move'
+  | 'invalid_draw'
+  | 'bad_join'
+
+/** Same set as `ErrCode`, useful for the test suite (matches worker mirror). */
+export const ERROR_CODES: readonly ErrCode[] = [
+  'version_mismatch',
+  'stale_move',
+  'invalid_move',
+  'invalid_draw',
+  'bad_join',
+]
+
+/**
+ * Convert a server `WelcomeMsg` into the local `GameMove[]` consumed by the
+ * reducer. The wire's `WireMove` is structurally identical to `GameMove`;
+ * this function exists so the call sites are explicit about the boundary.
+ */
+export function welcomeToMoves(welcome: WelcomeMsg): GameMove[] {
+  return welcome.moves.map((m) => ({
+    san: m.san,
+    color: m.color,
+    from: m.from,
+    to: m.to,
+    ...(m.promotion ? { promotion: m.promotion } : {}),
+  }))
+}
 
 export function encode(msg: ClientMsg | ServerMsg): string {
   return JSON.stringify(msg)
@@ -207,6 +249,7 @@ export function decode(data: string): ServerMsg | null {
     case 'pong':
     case 'drawOffer':
     case 'roomEnd':
+    case 'clock':
       return raw as ServerMsg
     default:
       return null

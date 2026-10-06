@@ -4,6 +4,7 @@ import { DrawOfferBanner } from './DrawOfferBanner'
 import { GameOverBanner } from './GameOverBanner'
 import { HexBoard } from './HexBoard'
 import { MoveList } from './MoveList'
+import { downloadPgn, toPgn } from './pgn'
 import { PROTOCOL_VERSION } from './protocol'
 import {
   useRemoteGame,
@@ -90,6 +91,14 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
         scanlines={scanlines}
         onToggleScanlines={() => setScanlines((on) => !on)}
         onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
+        // t55 remote export: the room's terminal say threads into the PGN
+        // (a mirrored draw agreement exports 1/2-1/2 + annotation).
+        onExportPgn={() =>
+          downloadPgn(
+            toPgn(game.moves, game.gameOver, game.roomEndReason ?? undefined),
+            `hex-chess-${roomCode}.pgn`,
+          )
+        }
       />
 
       <div className="app__layout">

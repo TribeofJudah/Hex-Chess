@@ -235,6 +235,13 @@ interface GameState {
   drawOffer: DrawOfferView | null
   keyCounts: Record<string, number>
   gameOver: GameOver | null
+  /**
+   * Wire reason for the multiplayer `roomEnd` frame that set `gameOver`
+   * (t48 + t56). Carried through so the PGN export can pick the right
+   * annotation comment. null when the game ended locally (hotseat, resign,
+   * checkmate, fifty-move, repetition).
+   */
+  roomEndReason: 'draw_agreement' | 'time' | null
 }
 
 /** A fresh game state around an arbitrary starting position. */
@@ -252,6 +259,7 @@ function stateFor(position: BoardPieces, turn: PieceColor): GameState {
     drawOffer: null,
     keyCounts: { [positionKey(position)]: 1 },
     gameOver: null,
+    roomEndReason: null,
   }
 }
 
@@ -288,8 +296,12 @@ type GameAction =
   | { type: 'chooseOffer'; kind: DrawOfferKind }
   /** Server mirror: a drawOffer{state,by} frame; 'idle' arrives as null. */
   | { type: 'recvDrawOffer'; view: DrawOfferView | null }
-  /** Server mirror: roomEnd{reason:'draw_agreement'} (t48 terminal). */
-  | { type: 'recvRoomEnd' }
+  /**
+   * Server mirror: roomEnd frame (t48 + t56 terminal).
+   * `reason` is the wire value; `winner` is the OPPOSITE of the seat that
+   * timed out (only meaningful when `reason === 'time'`).
+   */
+  | { type: 'recvRoomEnd'; reason: 'draw_agreement' | 'time'; winner?: 'white' | 'black' }
 
 interface GameStore {
   game: GameState
@@ -343,6 +355,7 @@ function play(
     drawOffer: game.drawOffer,
     keyCounts: { ...game.keyCounts, [key]: (game.keyCounts[key] ?? 0) + 1 },
     gameOver: null,
+    roomEndReason: null,
   }
   game2.gameOver = evaluate(game2, rules)
   // A new move always drops the browse cursor back to the live game; undo
@@ -448,7 +461,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
       const last = store.history[store.history.length - n]
       if (!last) return store
       return {
-        game: { ...last, gameOver: null },
+        game: { ...last, gameOver: null, roomEndReason: null },
         history: store.history.slice(0, -n),
         viewPly: null,
       }
@@ -479,6 +492,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           gameOver: { kind: 'resign', winner: other(game.turn) },
           pendingPromotion: null,
           drawOffer: null,
+          roomEndReason: null,
         },
       }
     }
@@ -494,6 +508,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           gameOver: { kind: 'agreement' },
           pendingPromotion: null,
           drawOffer: null,
+          roomEndReason: null,
         },
       }
     }
@@ -522,6 +537,7 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           gameOver: { kind: 'agreement' },
           pendingPromotion: null,
           drawOffer: null,
+          roomEndReason: null,
         },
       }
     }
@@ -533,17 +549,29 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         ...store,
         game: { ...store.game, drawOffer: action.view },
       }
-    case 'recvRoomEnd':
-      // Wire mirror (t48): roomEnd{reason:'draw_agreement'} ends the room.
+    case 'recvRoomEnd': {
+      // Wire mirror (t48 + t56): roomEnd ends the room. For `draw_agreement`
+      // the kind is `agreement`. For `time` the wire's `winner` is the side
+      // that WON, so the LOSER is the opposite — useful for the PGN export
+      // comment. (The board is frozen, so the result line for timeouts
+      // carries the winner via the existing {kind, winner} shape; we use
+      // `resign` for v1 since checkmate-by-clock is not yet implemented.)
+      const { reason, winner } = action
+      const gameOver: GameOver =
+        reason === 'time' && winner
+          ? { kind: 'resign', winner }
+          : { kind: 'agreement' }
       return {
         ...store,
         game: {
           ...store.game,
-          gameOver: { kind: 'agreement' },
+          gameOver,
           pendingPromotion: null,
           drawOffer: null,
+          roomEndReason: reason,
         },
       }
+    }
   }
 }
 
@@ -560,6 +588,12 @@ export interface UseGameResult {
   lastMove: [string, string] | null
   inCheckCell?: string | undefined
   canUndo: boolean
+  /**
+   * Wire reason for the multiplayer `roomEnd` that ended the game (t56).
+   * null when the game ended locally (resign, hotseat draw, checkmate,
+   * repetition, fifty-move). Drives the PGN export's annotation comment.
+   */
+  roomEndReason: 'draw_agreement' | 'time' | null
   /** Half-move index currently viewed; equals `moves.length` when live (T14). */
   viewPly: number
   /** Black is played by the AI (White human vs Black AI). */
@@ -585,8 +619,8 @@ export interface UseGameResult {
   chooseOffer(kind: DrawOfferKind): void
   /** Wire mirror: apply a drawOffer{state,by} frame, 'idle' as null. */
   recvDrawOffer(view: DrawOfferView | null): void
-  /** Wire mirror: apply roomEnd{reason:'draw_agreement'} (t48 terminal). */
-  recvRoomEnd(): void
+  /** Wire mirror: apply `roomEnd{reason, winner?}` (t48 + t56 terminal). */
+  recvRoomEnd(reason: 'draw_agreement' | 'time', winner?: 'white' | 'black'): void
   undo(): void
   newGame(): void
   /** Jump the board view back to the position after `ply` half-moves (T14). */
@@ -737,9 +771,11 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     resign: () => dispatch({ type: 'resign' }),
     agreeDraw: () => dispatch({ type: 'draw' }),
     drawOffer: game.drawOffer,
+    roomEndReason: game.roomEndReason,
     chooseOffer: (kind) => dispatch({ type: 'chooseOffer', kind }),
     recvDrawOffer: (view) => dispatch({ type: 'recvDrawOffer', view }),
-    recvRoomEnd: () => dispatch({ type: 'recvRoomEnd' }),
+    recvRoomEnd: (reason, winner) =>
+      dispatch({ type: 'recvRoomEnd', reason, ...(winner ? { winner } : {}) }),
   }
 }
 

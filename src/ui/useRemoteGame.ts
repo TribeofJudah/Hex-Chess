@@ -261,10 +261,14 @@ export function useRemoteGame(
           }
           break
         }
-        case 'roomEnd':
-          // Terminal draw-agreement frame (t48): the room is over.
-          gameRef.current.recvRoomEnd()
+        case 'roomEnd': {
+          // Terminal draw-agreement frame (t48); also fires for a clock
+          // timeout in t56. `winner` is the side that WON (the OPPOSITE of
+          // the seat that ran out); we pass it through so the local reducer
+          // can mark the right `gameOver` shape.
+          gameRef.current.recvRoomEnd(msg.reason, msg.winner)
           break
+        }
         case 'pong':
           break
       }
@@ -345,6 +349,11 @@ export function useRemoteGame(
       revision: revisionRef.current,
     })
   }, [game.moves, status, send])
+
+  // Terminal say of the wire (t55): the mirrored agreement gameOver is the
+  // draw_agreement producer; t54's clock adds 'time' on top of it. The
+  // reducer carries the reason on `game.roomEndReason` (set by `recvRoomEnd`
+  // in useGame), so it's exposed verbatim via `...game` in the return below.
 
   const leave = useCallback(() => {
     closedByUsRef.current = true
