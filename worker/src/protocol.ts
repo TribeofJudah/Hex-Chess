@@ -7,12 +7,17 @@
  */
 
 /**
- * Bumped whenever a message shape changes incompatibly. `2` (t56): `welcome`
- * gained the clock and the terminal flag, and `roomEnd.reason` gained `time`
- * — a v1 client cannot read either, so it is rejected at join instead of
- * playing a clock-less board.
+ * Bumped whenever a message shape changes incompatibly.
+ * - `2` (t56): `welcome` gained the clock and the terminal flag, and
+ *   `roomEnd.reason` gained `time`.
+ * - `3` (t62, Round 12): `roomEnd.reason` widens to the four engine-game-end
+ *   values (`checkmate` | `stalemate` | `draw50` | `repetition`). A v2 client
+ *   cannot read them and would silently keep playing a finished board, so the
+ *   join handshake rejects it with `version_mismatch` instead. See
+ *   `claudedocs/TERMINALS.md` §3 for the wire rationale and `ROOM_PROTO.md`
+ *   §6 for the bump discipline.
  */
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 export type Seat = 'white' | 'black' | 'spectator'
 export type PieceColor = 'white' | 'black'
@@ -170,14 +175,36 @@ export interface DrawOfferMsg {
   by: Seat
 }
 /**
- * Terminal frame: the room is over. `draw_agreement` (t48) or `time` (t56,
- * a seat's clock reached zero — `winner` names the other seat).
+ * Terminal frame: the room is over.
+ *
+ * - `draw_agreement` (t48): both seats agreed. No `winner`.
+ * - `time` (t56): a seat's clock ran out. `winner` is the other seat.
+ * - `checkmate` (t62, Round 12): the engine has no legal moves for the side
+ *   to move and that side is in check. `winner` is the side that delivered
+ *   mate — the opponent of the now-mated side.
+ * - `stalemate` (t62, Round 12): no legal moves for the side to move, not in
+ *   check. Gliński scores stalemate 3/4 : 1/4 — **not** a draw. The decision
+ *   in this build is to award 3/4 to the side whose turn it is when the
+ *   stalemate is reached (see `claudedocs/TERMINALS.md` §2 for the rationale
+ *   and the open question about which side is conventionally the "stalemater"
+ *   vs the "stalemated"). `winner` therefore equals the post-move side to
+ *   move.
+ * - `draw50` (t62, Round 12): the 50-move counter reached 100 halfmoves
+ *   without a pawn move or a capture. No `winner`.
+ * - `repetition` (t62, Round 12): threefold repetition. No `winner`.
  */
 export interface RoomEndMsg {
   v: number
   type: 'roomEnd'
   code: string
-  reason: 'draw_agreement' | 'time'
+  reason:
+    | 'draw_agreement'
+    | 'time'
+    | 'checkmate'
+    | 'stalemate'
+    | 'draw50'
+    | 'repetition'
+  /** Present on `time`, `checkmate`, and `stalemate`. Absent on the others. */
   winner?: PieceColor
 }
 

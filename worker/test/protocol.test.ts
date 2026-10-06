@@ -3,7 +3,9 @@ import { decodeClient, encode, PROTOCOL_VERSION } from '../src/protocol'
 
 describe('worker protocol codec', () => {
   it('exposes the current version', () => {
-    expect(PROTOCOL_VERSION).toBe(2)
+    // Round 12 (t62): bumped to 3 when `roomEnd.reason` widened to include
+    // the four engine game-end values. See claudedocs/TERMINALS.md §3.
+    expect(PROTOCOL_VERSION).toBe(3)
   })
 
   it('decodes every client frame shape', () => {

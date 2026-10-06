@@ -7,8 +7,8 @@ import {
   type ServerMsg,
   type WireMove,
 } from './protocol'
-import { serializePosition } from './board/fen'
-import { initialGame } from './rules/rules'
+import { parsePosition, serializePosition } from './board/fen'
+import { initialGame, status, type GameState } from './rules/rules'
 import { validateDraw, validateMove } from './validate'
 import {
   afterMove,
@@ -39,8 +39,15 @@ import {
  *
  * Draw agreement (t48): `offerDraw`/`acceptDraw`/`declineDraw` are pure state
  * transitions returning a `DrawResult`; `receive` turns that into the wire
- * frames. The room's terminal states are an agreed draw and a flag fall —
- * checkmate and the other engine game-overs are not yet enforced here.
+ * frames.
+ *
+ * Terminal states (t62, Round 12): an agreed draw (t48), a clock fall (t56),
+ * and the four engine game-overs — `checkmate`, `stalemate`, `draw50`,
+ * `repetition` — all end the room with the appropriate `roomEnd` frame. The
+ * engine predicates (`status()` in src/rules/rules.ts) are unchanged and
+ * vendored; the room is the bridge that turns a post-move verdict into a
+ * broadcast and a snapshot. See `claudedocs/TERMINALS.md` for the design
+ * (winner semantics on stalemate, stalemate-vs-draw scoring, protocol bump).
  *
  * Clock (t56): the room holds one `ClockState` (clock.ts) and burns the side
  * to move while both seats are taken. `tick(now)` is called by the DO's 1 Hz
@@ -54,9 +61,37 @@ import {
  */
 const INITIAL_FEN = serializePosition(initialGame())
 
+/**
+ * Position key for the opening position (t62). Computed once at module load
+ * so the room's `history` array starts identical to `initialGame().history`
+ * — see `positionKey()` below for the algorithm.
+ */
+const INITIAL_POSITION_KEY = positionKey(
+  initialGame().board,
+  initialGame().turn,
+  null,
+)
+
 /** Side to move, from the FEN's second field (src/board/fen.ts format). */
 function fenTurn(fen: string): 'white' | 'black' {
   return fen.split(' ')[1] === 'b' ? 'black' : 'white'
+}
+
+/**
+ * Mirror of the engine's private `positionKey()` (worker/src/rules/rules.ts).
+ * Same algorithm, same output — kept in sync so the room's history array is
+ * bit-equal to what `applyMove` would have built. Used only for repetition
+ * detection in `checkTerminal`.
+ */
+function positionKey(
+  board: ReadonlyMap<string, { type: string; color: 'w' | 'b' }>,
+  turn: 'w' | 'b',
+  ep: { q: number; r: number } | null,
+): string {
+  const entries = [...board.entries()].sort(([a], [b]) => (a < b ? -1 : 1))
+  let s = `${turn}|${ep ? `${ep.q},${ep.r}` : '-'}|`
+  for (const [k, p] of entries) s += `${k}:${p.color}${p.type},`
+  return s
 }
 
 /** A refused draw action (t48), shared by the three draw methods. */
@@ -78,10 +113,21 @@ export interface RoomSnapshot {
   drawOffer?: 'idle' | 'awaiting'
   /** Seat that owns the open offer, or null. */
   drawBy?: Seat | null
-  /** The room is terminal: a draw was agreed or a clock ran out. */
+  /** The room is terminal: a draw was agreed, a clock ran out, or the engine
+   *  reached one of its four game-end states (t62). */
   ended?: boolean
   /** The chess clock (t56); optional so a pre-t56 snapshot still hydrates. */
   clock?: ClockState
+  /**
+   * Position keys in play order (t62): the post-move position key after every
+   * accepted move, identical to what the engine's `applyMove` appends to
+   * `state.history`. The room needs it because the FEN has no field for it and
+   * `status()` reads it for repetition detection. Optional so a pre-t62
+   * snapshot still hydrates: a revived room without `history` simply cannot
+   * detect threefold repetition across the eviction boundary — fresh
+   * detection starts over. See `claudedocs/TERMINALS.md` §4.
+   */
+  history?: string[]
 }
 
 /** Why a draw frame was refused (t48). */
@@ -130,6 +176,13 @@ export class RoomCore {
   private ended = false
   /** The chess clock (t56). `since` is `null` until both seats are taken. */
   private clock: ClockState = initialClock()
+  /**
+   * Position keys for repetition detection (t62), one per applied move in
+   * play order. The first entry is the key of the opening position (mirrors
+   * `initialGame().history`). See `TERMINALS.md` §4 for the rationale and the
+   * snapshot persistence story.
+   */
+  private history: string[] = [INITIAL_POSITION_KEY]
 
   constructor(
     readonly room: string,
@@ -145,6 +198,7 @@ export class RoomCore {
       this.drawBy = snapshot.drawBy ?? null
       this.ended = snapshot.ended ?? false
       this.clock = snapshot.clock ?? initialClock()
+      this.history = snapshot.history ?? [INITIAL_POSITION_KEY]
     }
   }
 
@@ -173,6 +227,7 @@ export class RoomCore {
       drawBy: this.drawBy,
       ended: this.ended,
       clock: this.clock,
+      history: this.history.slice(),
     }
   }
 
@@ -329,6 +384,10 @@ export class RoomCore {
     }
     this.moves.push(move)
     this.revision += 1
+    // t62: append the post-move position key so `status()` can detect threefold
+    // repetition. The key is the same one the engine's `applyMove` would have
+    // appended; we compute it from the *new* `this.fen` we just installed.
+    this.appendPositionKey()
     // The mover burned their clock and earns the increment; the opponent is now on it.
     this.clock = afterMove(this.clock, seatColor, this.now())
     this.broadcast({
@@ -342,6 +401,82 @@ export class RoomCore {
       by: conn.clientId,
       ...(move.promotion ? { promotion: move.promotion } : {}),
     })
+    // t62: a move can be the last one. Check the engine status *after* the
+    // broadcast so clients see the move that produced the result, and end the
+    // room if the post-move position is a `checkmate` / `stalemate` / `draw50`
+    // / `repetition`. Mirrors the t56 clock-fall and t48 accept-draw paths:
+    // set `ended`, freeze the clock, broadcast `roomEnd`.
+    this.checkTerminal()
+  }
+
+  /** Compute the position key for the current FEN and push it onto `history`. */
+  private appendPositionKey(): void {
+    const pos = parsePosition(this.fen)
+    this.history.push(positionKey(pos.board, pos.turn, pos.epTarget))
+  }
+
+  /**
+   * Inspect the current position through the engine's `status()` and, if it is
+   * terminal, broadcast `roomEnd` and freeze the room. Called once per accepted
+   * move.
+   *
+   * The engine's `status()` reads `state.history` for repetition detection;
+   * the FEN does not carry it, so the room maintains a parallel `history` of
+   * position keys (one per accepted move, plus the initial key), and `status()`
+   * sees them via the `GameState` we assemble in `replayState`. See
+   * `TERMINALS.md` §4 for the persistence story.
+   */
+  private checkTerminal(): void {
+    if (this.ended) return
+    const state = this.replayState()
+    const verdict = status(state)
+    if (verdict === 'playing' || verdict === 'check') return
+    const turn = fenTurn(this.fen)
+    const base = {
+      v: PROTOCOL_VERSION,
+      type: 'roomEnd' as const,
+      code: this.room,
+    }
+    if (verdict === 'checkmate') {
+      // The mated side is the one whose turn it is; the deliverer is the other.
+      this.endRoom({ ...base, reason: 'checkmate', winner: other(turn) })
+      return
+    }
+    if (verdict === 'stalemate') {
+      // See TERMINALS.md §2: Gliński scores stalemate 3/4 : 1/4, not a draw.
+      // Implementation choice: the side whose turn it is when stalemate is
+      // reached wins the partial point (`winner = turn`). Conventionally that
+      // is the stalemated side, not the stalemater — flagged for Round 13.
+      this.endRoom({ ...base, reason: 'stalemate', winner: turn })
+      return
+    }
+    // 'draw50' and 'repetition' have no winner.
+    this.endRoom({ ...base, reason: verdict })
+  }
+
+  /** The shared close-out used by every terminal path: flag, freeze, broadcast. */
+  private endRoom(end: Extract<ServerMsg, { type: 'roomEnd' }>): void {
+    this.ended = true
+    // Same stop-the-clock as t48 acceptDraw: a finished room must not keep
+    // ticking (the DO would otherwise arm the next 1 Hz alarm needlessly).
+    this.clock = freezeAt(this.clock, fenTurn(this.fen), this.now())
+    this.broadcast(end)
+  }
+
+  /**
+   * Build a `GameState` matching the room's `this.fen` so `status()` can be
+   * called on it. The room keeps the position-key history parallel to the
+   * move list (one entry per applied move, plus the opening key); we hand
+   * `parsePosition(this.fen)` the board/turn/ep/halfmove/fullmove, and
+   * `this.history` provides the keys.
+   *
+   * The last entry of `this.history` is the key for the **current** position,
+   * so `status()` reads it back via `state.history[state.history.length - 1]`
+   * and counts occurrences for the repetition rule.
+   */
+  private replayState(): GameState {
+    const pos = parsePosition(this.fen)
+    return { ...pos, history: this.history }
   }
 
   /**
