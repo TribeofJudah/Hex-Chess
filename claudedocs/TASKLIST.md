@@ -250,3 +250,89 @@ root tests 189/189, worker tests 34/34, root tsc -b 0, lint 0, build ok, FEN smo
   options and their fences. Recommended: t46 (CI deploy pipeline, small config-only)
   + t49 (dispatcher-only doc follow-up). Both fit the disjoint-fence pattern
   and add measurable value.
+
+## Round 10 — t56 server clock + t55 PGN multiplayer export — 2026-10-05
+
+Dispatcher: dpp1 (claude, pane 38). Workers: spp2 (pane 49,
+`deepseek-v4-flash:cloud`) + dvv (pane 50, `glm-5.3-flash:cloud`),
+parallel on the same checkout with disjoint fences.
+
+Two commits landed on `dev`:
+
+| sha | scope |
+| --- | ----- |
+| `81bb4ec` | round10(server-clock): 1Hz move clock with persistence + PROTOCOL bump to 2 (t56) |
+| `c8930f3` | round10(draw-pgn-export): roomEnd reason + loser-named comment for multiplayer terminals (t55) |
+
+`dev` is now 8 commits ahead of `origin/dev` (Rounds 4, 5, 6, 7, 8, 9, 10).
+Standing gates: root tests 215/215, worker tests 52/52, tsc -b 0, lint 0,
+build ok, FEN smoke 8/8, wrangler dry-run 32.97 KiB gzip 9.27 KiB.
+
+### Fences
+
+- `spp2 / t56`: `worker/**` only + `claudedocs/CLOCK.md`. The v2 mirror in
+  `src/ui/protocol.ts` was sequenced into the **follow-up commit**
+  (`c8930f3`) — spp2 had no out-of-band writes.
+- `dvv / t55`: `src/ui/{pgn,pgn.test,RemoteRoom}.{ts,tsx}` +
+  `claudedocs/PGN_DRAW.md`. dvv's `useRemoteGame.ts` edits were subsumed
+  by spp2's protocol-bump mirror (both wrote the same wire field).
+
+### Mid-round merge (important)
+
+Both workers wrote the same wire field (`ClockMsg` in `src/ui/protocol.ts`,
+`roomEndReason` in `useGame.ts`). Resolution: **additive**. spp2's wire
+types + reducer field won (committed in `81bb4ec`'s `useGame.ts` and
+`useGame.test.tsx`). dvv's `pgn.ts` accepts the merged vocabulary
+(`'time'` not `'timeout'`; explicit `timeLoser` 4th arg) and threads
+through the reducer field. The `pgn.test.ts` suites were merged into
+one file in `c8930f3` (verified by dispatcher reading the file before
+commit). Full report in `claudedocs/ROUND10_REPORT.md`.
+
+### Decisions worth flagging (full report in `claudedocs/ROUND10_REPORT.md`)
+
+- **PROTOCOL_VERSION bumped 1 → 2**. v1 clients rejected at join with
+  `version_mismatch`. Both `worker/src/protocol.ts` and
+  `src/ui/protocol.ts` carry the same `PROTOCOL_VERSION = 2` constant.
+- **Clock is server-authoritative.** `ClockState.since` is the epoch the
+  running seat started burning; real remaining = `stored - (now - since)`.
+  Nothing is written per tick (eviction accuracy is free).
+- **Wire `roomEnd.reason = 'time'`** + `winner` (winner = who WON; the
+  PGN inverts to name the LOSER at the call site).
+- **Per-room time control is not implemented.** Constants in
+  `worker/src/clock.ts` (`INITIAL_MS` / `INCREMENT_MS`); would need a
+  field on `join` if added.
+- **PGN `*[...]*` is house-convention**, not strict PGN. Strict PGN
+  uses `{...}` braces. Documented in `claudedocs/PGN_DRAW.md` §3.
+
+### Deferred (logged in `claudedocs/CLOCK.md` §9)
+
+- **No client UI yet.** `src/ui/protocol.ts` is v2; nothing renders the
+  clock. **Round 11 candidate.**
+- No pause / no abandonment timeout.
+- No `resign` (still absent from the protocol).
+- Checkmate / stalemate / 50-move still not enforced server-side.
+- DO test pool (`@cloudflare/vitest-pool-workers`) still missing.
+
+### Stale-entry disposition
+
+- t56, t57: `review` (post-`task done` luvus flow; `task merge` →
+  `review`; `task update --status done` closes them).
+- t47 (T-cf-deploy-pipeline) is queued but the code already landed in
+  `cf7f328` (Round 8). To be flipped to done in this turn's follow-up.
+- t53 remains queued (placeholder title, no work — empty stub).
+
+### Next up (dpp1)
+
+- **Round 11 candidate (single-fence): Clock UI.** Mirror `ClockMsg`
+  frames into a `Clock` component in `RemoteRoom` + `App.tsx`;
+  `theme.css` styling; tests for the hook carrying the field through.
+  `src/ui/**` only — no worker change. The clock is wired; it just
+  doesn't render.
+- **Round 12 candidates**: server-side checkmate / stalemate / 50-move
+  enforcement (still listed as non-goal in `ROOM_PROTO.md` §8.3); PGN
+  import (round-trip for replay/share); reconnect UX polish; resign
+  over the wire (currently absent from the protocol).
+- **v0.1.3 PR**: opened previously, awaits owner approval per
+  `RULES.md` §5. Will need description refresh to include R10
+  (server clock + PGN multiplayer export).
+- **dvv pane**: still in `done` state; close at next dispatch slot.
