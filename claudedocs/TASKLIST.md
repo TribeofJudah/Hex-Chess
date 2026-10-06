@@ -336,3 +336,88 @@ commit). Full report in `claudedocs/ROUND10_REPORT.md`.
   `RULES.md` §5. Will need description refresh to include R10
   (server clock + PGN multiplayer export).
 - **dvv pane**: still in `done` state; close at next dispatch slot.
+
+## Round 11 — Clock UI (single-fence, src/ui only) — 2026-10-05
+
+Dispatcher: dpp1 (claude, pane 38, this turn; no worker pane
+available — agent pool was empty after R10). Dispatcher did the work
+itself. No worker report file.
+
+One commit landed on `dev`:
+
+| sha | scope |
+| --- | ----- |
+| `daaf6e8` | round11(clock-ui): render the server-authoritative clock in RemoteRoom |
+
+`dev` is now 9 commits ahead of `main` (Rounds 4–11).
+Standing gates: root tests **226/226**, worker **52/52**, `tsc -b` 0,
+lint 0, build ok, FEN smoke 8/8, wrangler dry-run 32.97 KiB.
+
+### Fence
+
+`src/ui/**` only + `claudedocs/CLOCK.md` (§10 appended; §9 non-goal
+flipped). No worker change. No R10 protocol edit (PROTOCOL_VERSION 2
+was already correct from R10 follow-up `c8930f3`).
+
+### Why this round
+
+`CLOCK.md` §9 listed "No client UI yet" as a non-goal at the end of
+R10 — the wire was firing per-tick `clock` frames but the client
+silently dropped them: there was **no `case 'clock'`** in
+`useRemoteGame`'s message switch, and `welcome.clock` was unused too.
+R11 closes that gap.
+
+### What landed
+
+- **`src/ui/Clock.tsx` (NEW)** — pure renderer. Two seats (`White`
+  / `Black`), `mm:ss`, active-side highlight (yellow border via
+  `--active`), low-time pulse (<30s, animated red via `--low`).
+  `formatClock` floors at zero on stale frames, rounds down to
+  whole seconds, pads the seconds digit. `liveRemaining` extrapolates
+  inside the 1 s tick window (capped — the next wire frame is truth).
+  Freezes on `ended`.
+- **`src/ui/useRemoteGame.ts`** — added `clock?: ClockWire` to the
+  result, `useState` holder, and the missing `case 'clock'`. Seeds
+  from `welcome.clock` when present.
+- **`src/ui/RemoteRoom.tsx`** — mounts `<Clock>` in the room bar.
+  `ended` mirrors `game.gameOver !== null`.
+- **`src/ui/theme.css`** — `.hxc-clock*` rules. ~50 lines, follow
+  the existing retro/pixel border language.
+- **`src/ui/Clock.test.tsx` (NEW)** — 8 tests (formatClock + 5
+  component cases).
+- **`src/ui/useRemoteGame.test.tsx`** — 3 tests (welcome.clock seed,
+  per-tick mirror, undefined when welcome omits).
+- **`claudedocs/CLOCK.md`** — §10 added (client rendering contract);
+  §9 dropped the "No client UI yet" item; §6 noted the protocol mirror
+  landed in `c8930f3`.
+
+**Test delta:** root 215 → 226 (+11).
+
+### Decisions worth flagging
+
+- **Pure renderer.** No extrapolation beyond the tick window (visual
+  countdown inside 1 s is cosmetic; the wire is truth).
+- **Both seats rendered, even the idle one.** The opponent's clock
+  keeps burning during the local player's move (server-side per
+  `worker/src/clock.ts`'s `afterMove`). Drawn and unrendered would
+  hide that.
+- **`ended` freezes both sides** (no active highlight, last frame's
+  numbers). The `roomEnd` frame is the terminal, not the clock.
+- **No `prefers-reduced-motion` yet** on the low-time pulse — flagged
+  as a Round 12 polish item in `CLOCK.md` §10.
+
+### Stale-entry disposition
+
+- No new tasks created (R11 was a single-fence follow-up).
+- t53 remains the only queued stub (placeholder title, no work).
+
+### Next up (dpp1)
+
+- **v0.1.3 PR** is updated (16 commits, includes R11).
+- **Round 12 candidates**: server-side checkmate / stalemate / 50-move
+  enforcement (the most material remaining gap); PGN import (round-trip
+  for replay/share); reconnect UX polish; resign over the wire
+  (currently absent from the protocol); DO test pool
+  (`@cloudflare/vitest-pool-workers`); `prefers-reduced-motion` respect
+  on the clock pulse.
+- **dvv pane**: not applicable (no pane existed in this round).
