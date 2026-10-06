@@ -443,11 +443,15 @@ export class RoomCore {
       return
     }
     if (verdict === 'stalemate') {
-      // See TERMINALS.md §2: Gliński scores stalemate 3/4 : 1/4, not a draw.
-      // Implementation choice: the side whose turn it is when stalemate is
-      // reached wins the partial point (`winner = turn`). Conventionally that
-      // is the stalemated side, not the stalemater — flagged for Round 13.
-      this.endRoom({ ...base, reason: 'stalemate', winner: turn })
+      // Gliński scores stalemate 3/4 : 1/4, not a draw. The 3/4 partial
+      // point goes to the **side that trapped the opponent's king** — the
+      // same convention as `src/rules/adapter.ts:64` (`winner: opponent`) and
+      // mirrored by `src/ui/useGame.ts:585` and the PGN exporter. An
+      // earlier draft (Round 12 PR) picked `winner = turn` ("the side
+      // whose turn it is"), which is incoherent with `statusAfter()`'s
+      // canonical reading; that draft's `Terminals.md` §2.1 and §2.2 are
+      // superseded by this implementation.
+      this.endRoom({ ...base, reason: 'stalemate', winner: other(turn) })
       return
     }
     // 'draw50' and 'repetition' have no winner.

@@ -44,39 +44,54 @@ reason: 'draw_agreement' | 'time' | 'checkmate' | 'stalemate' | 'draw50' | 'repe
 
 The Gliński rules score stalemate **3/4 : 1/4**, not 1/2 : 1/2 — the side
 that delivered the stalemate wins the larger partial point (see
-`src/rules/rules.ts` lines 13 + 408). This is unusual on its own, and the
-question of **which** of the two sides is the "stalemater" is the substance
-the room has to decide.
+`src/rules/rules.ts` lines 13 + 408). The semantic question of which side
+is the "stalemater" has a single canonical answer in this codebase:
 
-### 2.1 Implementation choice in the worker
+**The side that trapped the opponent's king. The `winner` field is the
+trapping side, i.e. `other(turn)` where `turn` is the side whose turn it is
+when the engine reports stalemate.**
 
-This build implements `winner = turn`, where `turn` is the side whose turn it
-is when stalemate is reached (the side with no legal moves and not in
-check). This is the brief's default, and it matches the engine's own
-reporting: `status()` reads `state.turn` for that.
+This is the same convention as `src/rules/adapter.ts:64`, where
+`statusAfter` returns `{ kind: 'stalemate', winner: opponent }`. It is the
+same convention as `src/ui/useGame.ts:585` (the reducer's `recvRoomEnd`
+case for stalemate) and the PGN exporter (`pgnResult` returns
+`3/4-1/4` / `1/4-3/4` against the winner). All four agree.
 
-### 2.2 Why this is documented as an open call
+### 2.1 Why `winner = other(turn)` and not `winner = turn`
 
-There is a vocabulary mismatch in the source material the project inherits:
+The engine's `status()` returns `'stalemate'` for the side whose turn it
+is when the position has no legal moves and is not in check. That side
+is the **stalemated** side in game-theoretic vocabulary — the side that
+cannot move. Conventional chess (FIDE, PGN export conventions) awards
+the partial point to the **other** side: the one that *did* move and
+*did* trap the king. The engine adapter `statusAfter` already encodes
+this with `winner: opponent`, and the room does too.
 
-- **Conventional chess vocabulary**: the side *delivering* stalemate is the
-  side whose move left the opponent with no options. They are conventionally
-  the side whose turn it **was not** — the side that *would now* be on the
-  move.
-- **Gliński convention (this codebase)**: "the stalemater" is the side whose
-  turn it is. The 3/4 partial score goes to the side that has no legal move
-  and is not in check, because their move can only be a passive king-twitch
-  that the opponent will exploit.
+An earlier draft of Round 12 picked `winner = turn` based on a literal
+read of the engine's `state.turn`. That reading is incoherent with
+`statusAfter`, with conventional chess, and with the line comments in
+`useGame.ts:585`. It was caught during dispatcher gates and corrected to
+`winner = other(turn)` before merge.
 
-Under the conventional reading the implementer would write `winner = other(turn)`
-(the mirror of `checkmate`). Under the engine-codebook reading they write
-`winner = turn` (the side that `status()` reports as the stalemated side).
+### 2.2 Stalemate fixtures
 
-The brief asks me to do the second; I have done so. The implementation note
-in `worker/src/room.ts` (see `checkTerminal()`'s stalemate branch) flags
-this as a question for Round 13 to resolve. If Round 13 changes the call,
-only the one branch is touched — the wire shape, the protocol bump, the
-snapshot schema, and the rest of the test suite are unaffected.
+The engine's `stalemate` branch is `legalMoves(state) === 0 && !inCheck(state, state.turn)`.
+The rules test's exhaustive search only finds the Map-overwrite path (a
+K+Q at the same cell). The chosen fixture instead exercises the **king-capture**
+path: the engine's `pseudoMoves` doesn't exclude king captures, so a queen
+can capture the enemy king. Post-move the captured side has no king and
+no pieces. `inCheck(state, 'b')` returns `false` because
+`findKing(state, 'b') === null`. `legalMoves(state, 'b') === 0` because
+there are no black pieces. `status()` therefore returns `'stalemate'`.
+
+Pre: white queen at `d8`, black king at `c8`, white king at `l1`. White
+plays `Q@d8→c8` (king capture). Post: black has nothing → engine says
+`stalemate` → room broadcasts
+`roomEnd{reason: 'stalemate', winner: 'white'}`.
+
+The `winner = other(turn) = 'white'` is the side that *just moved*, the
+side that trapped the opponent's king. That is the side that earns the 3/4
+partial point under Gliński rules.
 ---
 
 ## 3. Protocol bump (2 → 3)
@@ -89,11 +104,9 @@ playing a finished board. The join handshake rejects a v2 client with
 
 > **Both copies must bump together.** The worker copy is
 > `worker/src/protocol.ts`; the client copy is `src/ui/protocol.ts`. The t62
-> fence covers `worker/**` only, so the client bump is a **required
-> follow-up** for the Round 13 client pass. A worker-only deploy without the
-> client bump will not break v2 clients (they cannot join), but it leaves
-> the wire shape inconsistent. Tracked here, not in a separate issue list,
-> because Round 13 is the natural place to land.
+> fence covers `worker/**` only; the client bump lands in the matching
+> `round12(terminals-client)` branch (commit `4139737`). Both copies are
+> `PROTOCOL_VERSION = 3`. The PR that merges both lands on `dev` together.
 
 ---
 

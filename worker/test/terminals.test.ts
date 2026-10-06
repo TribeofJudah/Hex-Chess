@@ -206,18 +206,19 @@ describe('RoomCore engine-game-end terminals (t62)', () => {
     const room = seededRoom(fen)
     room.core.receive(room.w.conn, move('d8', 'c8', 0))
 
-    // Implementation choice: `winner` is the side whose turn it is (black).
-    // See TERMINALS.md §2 for the rationale and the open question about
-    // which side conventionally is the "stalemater".
+    // Gliński 3/4 — the partial point goes to the side that trapped the
+    // opponent's king. White played Q@d8→c8 to capture black's last piece;
+    // white is the trapping side, hence `winner: 'white'`. Mirrors
+    // `src/rules/adapter.ts:64` (`winner: opponent`).
     expect(room.w.find('roomEnd')).toMatchObject({
       type: 'roomEnd',
       code: 'ABCD',
       reason: 'stalemate',
-      winner: 'black',
+      winner: 'white',
     })
     expect(room.b.find('roomEnd')).toMatchObject({
       reason: 'stalemate',
-      winner: 'black',
+      winner: 'white',
     })
     expect(room.core.snapshot()).toMatchObject({ ended: true })
   })
