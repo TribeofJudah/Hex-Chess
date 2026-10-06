@@ -421,3 +421,100 @@ R11 closes that gap.
   (`@cloudflare/vitest-pool-workers`); `prefers-reduced-motion` respect
   on the clock pulse.
 - **dvv pane**: not applicable (no pane existed in this round).
+
+## Round 12 — server-side rule-book terminal enforcement (t62, R12)
+
+Date: 2026-10-06 · Branch: `dev` · Base: `fde0769` (R11 landed) · Source:
+dispatcher dpp1 (this session) · Two parallel workers on parallel branches
+merged fast-forward into dev.
+
+### What closed
+
+The longest-standing gap in `ROOM_PROTO.md` §8.3: "checkmate / stalemate
+/ 50-move still not enforced server-side". The rules engine has had
+`status()` since the T-series (checkmate, stalemate, draw50, repetition
+all detected); the wire did not carry the verdicts. R12 lands two
+fences in parallel:
+
+**Worker fence (`round12(terminals-worker)` — `b56f131`, spp2)**
+- `worker/src/protocol.ts`: `PROTOCOL_VERSION` 2 → 3. `RoomEndMsg.reason`
+  union widens to six values: `'draw_agreement' | 'time' | 'checkmate'
+  | 'stalemate' | 'draw50' | 'repetition'`.
+- `worker/src/room.ts`: `checkTerminal()` after every accepted move
+  (mirrors t56's `tickIfElapsed` and t48's `acceptDraw` pattern).
+  Persists `ended: true` to `RoomSnapshot` (revivable). Position-key
+  history is added to the snapshot for `repetition` detection.
+- `worker/test/terminals.test.ts` (NEW, 6 tests): checkmate,
+  stalemate, draw50, repetition, post-terminal move rejection,
+  snapshot persistence.
+- `claudedocs/TERMINALS.md` (NEW): wire surface, stalemate question,
+  protocol bump, position-key history.
+- Standing gates: worker 52 → 58 (+6), wrangler dry-run clean
+  (36.48 KiB / 9.27 KiB gzip).
+
+**Client fence (`round12(terminals-client)` — `4139737`, dvv)**
+- `src/ui/protocol.ts`: mirror the protocol bump (= 3).
+- `src/ui/useGame.ts`: `recvRoomEnd` reducer maps each new wire
+  reason to the matching `GameOver` kind.
+- `src/ui/pgn.ts`: per-reason PGN result + comment. Checkmate →
+  1-0/0-1 + "Checkmate, {winner} wins". Stalemate → 3/4-1/4 or
+  1/4-3/4 + "Stalemate — Gliński 3/4 to {winner}". draw50 /
+  repetition → 1/2-1/2 with the rule name.
+- `src/ui/RemoteRoom.tsx`: per-reason banner text (existing
+  `GameOverBanner` already handles stalemate 3/4).
+- `src/ui/pgn.test.ts` (+6), `src/ui/protocol.test.ts` (+1),
+  `src/ui/useGame.test.tsx` (+8), `src/ui/useRemoteGame.test.tsx`
+  (+3).
+- `claudedocs/PGN_DRAW.md` updated to a §9 "Terminal annotations"
+  covering all 6 reasons.
+- Standing gates: root 226 → 244 (+18), `tsc -b` 0, lint clean,
+  build ok, FEN smoke 8/8.
+
+### Stalemate 3/4 framing — resolved at merge
+
+The dispatcher brief flagged the stalemate `winner` semantic as an
+open call. The two workers picked **opposite** conventions:
+
+- **spp2 (worker)**: `winner = turn` (the side whose turn it is when
+  stalemate triggers — the stalemated side in the engine's literal
+  reading).
+- **dvv (client)**: comment says "winner is the side that trapped the
+  opponent's king" — the trapping side, mirroring
+  `src/rules/adapter.ts:64` (`statusAfter` returns
+  `{ kind: 'stalemate', winner: opponent }`).
+
+**Decision: `winner = other(turn)`** — the side that trapped the
+king. Rationale: the engine adapter, the client reducer, and the PGN
+exporter all already used this convention; the worker's draft was the
+lone dissent. Game-theoretically incoherent to award 3/4 to the side
+that has no legal moves (the test fixture had black with no pieces
+left being called the "winner"). The fix landed as
+`round12-terminals-stalefix` (`2af1863`) on the worker, with the
+test fixture flipping `winner: 'black'` → `'white'`. TERMINALS.md
+§2 is rewritten to commit to the convention with full reasoning.
+
+### Final state on dev
+
+`a18fc69` (HEAD) ← `2af1863` (stalefix) ← `b56f131` (worker) ←
+`fde0769` (R11 base) ← …
+
+- All 3 R12 commits pushed to `origin/dev`.
+- All gates green: root 244/244, worker 58/58, `tsc -b` 0, lint 0,
+  build ok, FEN smoke 8/8, wrangler dry-run 36.48 KiB.
+- `dev` is now 12 commits ahead of `main` (was 9; +3 R12 commits).
+- PR #3 v0.1.3 awaits owner refresh to add the R12 row.
+
+### Dispatcher notes
+
+- Workers ran in parallel via the team agent harness
+  (`team_spawn_teammate` + `team_run_task` async). The harness is
+  workspace-agnostic; it worked from the dispatcher shell.
+- The stalemate disagreement was caught at the merge gate when the
+  dispatcher read both reports and the worker's test fixture against
+  `src/rules/adapter.ts`. **Lesson: brief at minimum references the
+  engine adapter's `statusAfter` for terminal shapes so worker
+  implementations cannot diverge.**
+- Both workers pushed their branches to `origin`. No worker had a
+  local-only branch.
+- Dispatcher merged via fast-forward (no conflict — the fences were
+  disjoint files plus the protocol-bump constant in two places).
