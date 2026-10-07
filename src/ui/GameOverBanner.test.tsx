@@ -13,7 +13,9 @@ describe('GameOverBanner', () => {
     ],
     [{ kind: 'fifty-move' }, /fifty-move rule/i],
     [{ kind: 'repetition' }, /threefold repetition/i],
-    [{ kind: 'resign', winner: 'black' }, /black wins — resignation/i],
+    // t65: the wire `winner` is the opponent — the banner names the resigner.
+    [{ kind: 'resign', winner: 'black' }, /White resigned/i],
+    [{ kind: 'resign', winner: 'white' }, /Black resigned/i],
     [{ kind: 'agreement' }, /Draw — by agreement/i],
   ]
 

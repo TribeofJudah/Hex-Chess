@@ -252,6 +252,7 @@ interface GameState {
     | 'stalemate'
     | 'draw50'
     | 'repetition'
+    | 'resign'
     | null
 }
 
@@ -329,6 +330,7 @@ type GameAction =
         | 'stalemate'
         | 'draw50'
         | 'repetition'
+        | 'resign'
       winner?: 'white' | 'black'
     }
 
@@ -627,6 +629,12 @@ function reducer(store: GameStore, action: GameAction): GameStore {
           gameOver =
             winner !== undefined ? { kind: 'resign', winner } : { kind: 'agreement' }
           break
+        case 'resign':
+          // t65: a seated player conceded. The wire `winner` is the opponent;
+          // the banner names the resigner (see GameOverBanner).
+          gameOver =
+            winner !== undefined ? { kind: 'resign', winner } : { kind: 'agreement' }
+          break
         case 'draw_agreement':
           gameOver = { kind: 'agreement' }
           break
@@ -671,6 +679,7 @@ export interface UseGameResult {
     | 'stalemate'
     | 'draw50'
     | 'repetition'
+    | 'resign'
     | null
   /** Half-move index currently viewed; equals `moves.length` when live (T14). */
   viewPly: number
@@ -705,7 +714,8 @@ export interface UseGameResult {
       | 'checkmate'
       | 'stalemate'
       | 'draw50'
-      | 'repetition',
+      | 'repetition'
+      | 'resign',
     winner?: 'white' | 'black',
   ): void
   undo(): void

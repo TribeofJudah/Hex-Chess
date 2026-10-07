@@ -17,7 +17,10 @@ function bannerText(gameOver: GameOver): string {
     case 'repetition':
       return 'Draw — threefold repetition'
     case 'resign':
-      return `${gameOver.winner} wins — resignation`
+      // t65: name the resigner (the loser). Note a clock loss also maps to
+      // this kind on the wire (t56 `time` -> kind 'resign'), so the same text
+      // renders for a flag fall.
+      return `${gameOver.winner === 'white' ? 'Black' : 'White'} resigned`
     case 'agreement':
       return 'Draw — by agreement'
   }

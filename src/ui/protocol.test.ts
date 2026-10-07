@@ -14,7 +14,9 @@ describe('protocol', () => {
     // gained 'time' + optional winner). Bumped to 3 in R12: the worker now
     // enforces checkmate / stalemate / 50-move / threefold repetition, so
     // roomEnd.reason widens to all six; v2 clients are rejected at join.
-    expect(PROTOCOL_VERSION).toBe(3)
+    // Bumped to 4 in t65: the client gained the `resign` frame and
+    // roomEnd.reason gained the seventh value, 'resign'.
+    expect(PROTOCOL_VERSION).toBe(4)
   })
 
   it('encodes every client message shape as JSON', () => {
@@ -31,6 +33,7 @@ describe('protocol', () => {
       },
       { v: PROTOCOL_VERSION, type: 'resync', revision: 7 },
       { v: PROTOCOL_VERSION, type: 'ping', t: 123 },
+      { v: PROTOCOL_VERSION, type: 'resign' },
     ]
     for (const msg of messages) {
       expect(JSON.parse(encode(msg))).toEqual(msg)
@@ -186,6 +189,23 @@ describe('protocol', () => {
     for (const msg of messages) {
       expect(decode(encode(msg))).toEqual(msg)
     }
+  })
+
+  it('round-trips the resign frames (t65)', () => {
+    // Client -> server: no payload, the room derives the seat from the conn.
+    const resign: ClientMsg = { v: PROTOCOL_VERSION, type: 'resign' }
+    expect(JSON.parse(encode(resign))).toEqual(resign)
+    // The client decode() is inbound-only: client frames never parse.
+    expect(decode(encode(resign))).toBeNull()
+    // Server -> client: the terminal carries the opponent as winner.
+    const ended: ServerMsg = {
+      v: PROTOCOL_VERSION,
+      type: 'roomEnd',
+      code: 'ABCD',
+      reason: 'resign',
+      winner: 'black',
+    }
+    expect(decode(encode(ended))).toEqual(ended)
   })
 
   it('lists invalid_draw among the error codes (t48)', () => {

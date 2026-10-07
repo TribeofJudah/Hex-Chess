@@ -269,6 +269,41 @@ describe('pgn', () => {
       toPgn(moves, { kind: 'repetition' }, 'stalemate'),
     ).not.toContain('*[')
   })
+
+  // t65: resign. The wire `winner` is the OPPONENT of the resigner, so the
+  // annotation names the loser; the result is 1-0 / 0-1 from pgnResult().
+
+  it('threads a resign roomEnd into the loser-named comment + 1-0 / 0-1', () => {
+    // Black resigned → the wire names white as winner → annotation "Black
+    // resigned", result 1-0.
+    const blackResigned = toPgn(
+      moves,
+      { kind: 'resign', winner: 'white' },
+      'resign',
+    )
+    expect(blackResigned).toContain('[Result "1-0"]')
+    expect(blackResigned.endsWith('*[Black resigned]*\n1-0\n')).toBe(true)
+    const whiteResigned = toPgn(
+      moves,
+      { kind: 'resign', winner: 'black' },
+      'resign',
+    )
+    expect(whiteResigned).toContain('[Result "0-1"]')
+    expect(whiteResigned.endsWith('*[White resigned]*\n0-1\n')).toBe(true)
+  })
+
+  it('omits the resign comment when the snapshot does not corroborate it', () => {
+    // A `resign` reason on a non-resign snapshot renders no comment — the
+    // t55 corroboration guard, same as every other reason.
+    expect(
+      toPgn(moves, { kind: 'repetition' }, 'resign'),
+    ).not.toContain('*[')
+    expect(
+      toPgn(moves, { kind: 'agreement' }, 'resign'),
+    ).not.toContain('*[')
+    // No snapshot at all: also no comment.
+    expect(toPgn(moves, null, 'resign')).not.toContain('*[')
+  })
 })
 
 describe('remote export threading (t55)', () => {
@@ -364,5 +399,47 @@ describe('remote export threading (t55)', () => {
     )
     expect(text).toContain('[Result "1-0"]')
     expect(text.endsWith('*[Checkmate, White wins]*\n1-0\n')).toBe(true)
+  })
+
+  // t65 integration: the server delivers roomEnd{reason:'resign'} naming the
+  // opponent; the export button emits the loser-named comment + result.
+  it('threads a server-delivered resign into the loser-named PGN', async () => {
+    const socket = new StubSocket()
+    const { result } = renderHook(() =>
+      useRemoteGame('RSGN', {
+        connect: () => socket,
+        urlFor: (code) => `ws://room/${code}`,
+      }),
+    )
+    act(() => socket.open())
+    act(() =>
+      socket.recv({
+        v: PROTOCOL_VERSION,
+        type: 'welcome',
+        seat: 'white',
+        protocol: PROTOCOL_VERSION,
+        revision: 0,
+        moves: [],
+      }),
+    )
+    // Black resigned → the wire winner is white.
+    act(() =>
+      socket.recv({
+        v: PROTOCOL_VERSION,
+        type: 'roomEnd',
+        code: 'RSGN',
+        reason: 'resign',
+        winner: 'white',
+      }),
+    )
+    await waitFor(() => expect(result.current.roomEndReason).toBe('resign'))
+    expect(result.current.gameOver).toEqual({ kind: 'resign', winner: 'white' })
+    const text = toPgn(
+      result.current.moves,
+      result.current.gameOver,
+      result.current.roomEndReason ?? undefined,
+    )
+    expect(text).toContain('[Result "1-0"]')
+    expect(text.endsWith('*[Black resigned]*\n1-0\n')).toBe(true)
   })
 })

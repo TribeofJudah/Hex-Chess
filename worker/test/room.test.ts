@@ -55,6 +55,9 @@ const move = (from: string, to: string, revision: number): ClientMsg => ({
   revision,
 })
 
+/** The resign frame (t65): no payload, the room reads the seat from the conn. */
+const resign = (): ClientMsg => ({ v: 1, type: 'resign' })
+
 describe('RoomCore seating', () => {
   it('assigns white, then black, then spectator', () => {
     const core = new RoomCore('ABCD')
@@ -415,5 +418,84 @@ describe('RoomCore protocol + ping', () => {
     core.receive(a.conn, join('ABCD', a.conn))
     core.receive(a.conn, { v: 1, type: 'ping', t: 42 })
     expect(a.last()).toMatchObject({ type: 'pong', t: 42 })
+  })
+})
+
+describe('RoomCore resign (t65)', () => {
+  /** Two seated players with a hand-driven clock. */
+  function seatedRoom() {
+    let now = 1_000
+    const core = new RoomCore('ABCD', undefined, () => now)
+    const a = fakeConn('a') // white
+    const b = fakeConn('b') // black
+    core.receive(a.conn, join('ABCD', a.conn))
+    core.receive(b.conn, join('ABCD', b.conn))
+    return { core, a, b, at: (t: number) => (now = t) }
+  }
+
+  it('ends the room with winner = the opponent of the resigner', () => {
+    const { core, a, b } = seatedRoom()
+    core.receive(b.conn, resign()) // black concedes
+
+    // Both live clients see the terminal, winner named on the wire.
+    expect(a.find('roomEnd')).toMatchObject({
+      type: 'roomEnd',
+      code: 'ABCD',
+      reason: 'resign',
+      winner: 'white',
+    })
+    expect(b.find('roomEnd')).toMatchObject({ reason: 'resign', winner: 'white' })
+  })
+
+  it('names the opponent when the white seat resigns', () => {
+    const { core, a } = seatedRoom()
+    core.receive(a.conn, resign())
+    expect(a.find('roomEnd')).toMatchObject({
+      reason: 'resign',
+      winner: 'black',
+    })
+  })
+
+  it('rejects a spectator’s resign with no broadcast and no mutation', () => {
+    const { core, a } = seatedRoom()
+    const c = fakeConn('c') // spectator (white + black taken)
+    core.receive(c.conn, join('ABCD', c.conn))
+    const peerSeen = a.sent.length
+
+    core.receive(c.conn, resign())
+    expect(c.last()).toMatchObject({ type: 'error', code: 'bad_message' })
+    expect(c.types()).not.toContain('roomEnd')
+    expect(a.sent.length).toBe(peerSeen) // nothing spread to the seats
+    expect(core.snapshot().ended).toBeFalsy()
+  })
+
+  it('rejects a resign once the room has ended', () => {
+    const { core, a, b } = seatedRoom()
+    core.receive(a.conn, resign()) // white concedes → ended
+    expect(core.snapshot().ended).toBe(true)
+
+    const before = b.sent.length
+    core.receive(b.conn, resign()) // black's late frame
+    expect(b.last()).toMatchObject({
+      type: 'error',
+      code: 'bad_message',
+      message: 'the room has ended',
+    })
+    expect(b.sent.length).toBe(before + 1) // no second roomEnd
+  })
+
+  it('stops the clock on resign and persists ended:true', () => {
+    const { core, a, at } = seatedRoom()
+    // The clock arms once both seats are taken (t56).
+    expect(core.clockRunning).toBe(true)
+    at(50_000)
+    core.receive(a.conn, resign())
+
+    expect(core.clockRunning).toBe(false) // frozen, the DO stops its alarm
+    const snap = core.snapshot()
+    expect(snap.ended).toBe(true)
+    // A revived DO hydrates the terminal state (t44 path).
+    const revived = new RoomCore('ABCD', snap, () => 99_999)
+    expect(revived.clockRunning).toBe(false)
   })
 })

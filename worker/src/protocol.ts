@@ -16,8 +16,11 @@
  *   join handshake rejects it with `version_mismatch` instead. See
  *   `claudedocs/TERMINALS.md` §3 for the wire rationale and `ROOM_PROTO.md`
  *   §6 for the bump discipline.
+ * - `4` (t65, Round 15): adds the client `resign` frame and the seventh
+ *   `roomEnd.reason` value, `resign`. A v3 client does not know the frame —
+ *   nor the reason — so it is rejected at join with `version_mismatch`.
  */
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 export type Seat = 'white' | 'black' | 'spectator'
 export type PieceColor = 'white' | 'black'
@@ -89,7 +92,23 @@ export interface DeclineDrawMsg {
 }
 export type DrawMsg = OfferDrawMsg | AcceptDrawMsg | DeclineDrawMsg
 
-export type ClientMsg = JoinMsg | MoveMsg | ResyncMsg | PingMsg | DrawMsg
+/**
+ * Resign (t65). A seated player concedes; the room ends with
+ * `roomEnd{reason:'resign', winner: other(resigner)}`. No payload — the DO
+ * derives the resigning seat from the connection, like the draw frames.
+ */
+export interface ResignMsg {
+  v: number
+  type: 'resign'
+}
+
+export type ClientMsg =
+  | JoinMsg
+  | MoveMsg
+  | ResyncMsg
+  | PingMsg
+  | DrawMsg
+  | ResignMsg
 
 // ---- server → client -------------------------------------------------------
 
@@ -192,6 +211,8 @@ export interface DrawOfferMsg {
  * - `draw50` (t62, Round 12): the 50-move counter reached 100 halfmoves
  *   without a pawn move or a capture. No `winner`.
  * - `repetition` (t62, Round 12): threefold repetition. No `winner`.
+ * - `resign` (t65, Round 15): a seated player conceded. `winner` is the
+ *   opponent of the resigning seat.
  */
 export interface RoomEndMsg {
   v: number
@@ -204,7 +225,8 @@ export interface RoomEndMsg {
     | 'stalemate'
     | 'draw50'
     | 'repetition'
-  /** Present on `time`, `checkmate`, and `stalemate`. Absent on the others. */
+    | 'resign'
+  /** Present on `time`, `checkmate`, `stalemate`, and `resign`. */
   winner?: PieceColor
 }
 
@@ -246,6 +268,7 @@ export function decodeClient(data: string): ClientMsg | null {
     case 'offerDraw':
     case 'acceptDraw':
     case 'declineDraw':
+    case 'resign':
       return raw as ClientMsg
     default:
       return null
