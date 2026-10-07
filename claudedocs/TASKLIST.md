@@ -607,3 +607,64 @@ Logged but unblocked-by-owner. Priority order:
 | 4 | **`prefers-reduced-motion` respect on clock pulse** | CLOCK.md §10 polish item. ~10 lines of CSS. |
 | 5 | **Reconnect UX polish** | Status-bar visibility + backoff messaging. |
 | 6 | **Stalemate convention review (if owner flags)** | §11 to CLOCK.md or SPEC amendment if the 3/4-to-trapping-side reading gets owner pushback. |
+
+## Round 13 — DO test pool (t67, worker-fence only)
+
+Date: 2026-10-06 (dispatch) · Branch base: `9c4e169` (R13 pre-flight t65) ·
+Source: dispatcher dpp1 (this session) · Single worker fence (no
+client fence — `dvv` is reserved for the next round).
+
+### What this round ships
+
+Adds `@cloudflare/vitest-pool-workers` so the worker test suite can
+exercise `RoomDO` against a live workerd runtime instead of only
+testing the pure `RoomCore`. The R12 `terminals.test.ts` is the first
+test that crosses the DO surface (it tests `checkTerminal()` and
+snapshot persistence); today that file exercises only the pure core.
+A bug in the DO adapter in `worker/src/index.ts:44` would be invisible
+to the suite. The new pool unblocks:
+
+- Future rounds that need full WebSocket-pair / fetch-handshake tests
+  (reconnect resilience, draw-offer races, vs-AI flows).
+- Confidence the DO adapter hasn't drifted from the pure core.
+
+### Fence
+
+**Worker fence (`claude/test-do-pool` — `spp2`, t67)**
+- `worker/package.json`: `@cloudflare/vitest-pool-workers` `^0.22.0`
+  in devDependencies.
+- `worker/vitest.config.ts` (NEW): `defineWorkersConfig` from the
+  pool, `poolOptions.workers.wranglerConfig = '<cwd>/wrangler.toml'`.
+- `worker/test/setup.ts` (NEW): tiny `roomStub(env, code)` helper.
+  No D1M (the DO uses built-in SQLite via `new_sqlite_classes`).
+- `worker/test/terminals-do.test.ts` (NEW): two scenarios —
+  checkmate + stalemate — both asserting the wire `winner` semantic
+  matches the R12 dispatcher decision (`other(turn)` for stalemate).
+- The existing six test files (`protocol`, `validate`, `room`, `clock`,
+  `draw`, `terminals`) must continue to pass with no edits; if the
+  pool's per-file isolation breaks one, fix with
+  `// @vitest-environment node` rather than deleting the test.
+
+**No client fence.** The DO test pool is worker-only. `dvv` is
+reserved for the next dispatch (PGN import or `resign` over the
+wire — pending owner review of v0.1.3 PR #3 and direction signal).
+
+**No docs fence.** `claudedocs/**` is a separate dispatcher commit
+after merge.
+
+### Out-of-fence reminders (carried into the brief)
+
+- Do not bump `PROTOCOL_VERSION`. This is test-infra, not a wire change.
+- Do not touch `src/**`, `claudedocs/**`, `worker/wrangler.toml`,
+  `vite.config.ts`, `index.html`, root `package.json`, `scripts/`.
+- If an unrelated bug is found, **file it in the report, do not fix
+  it in this fence**.
+
+### Dispatch status
+
+- Brief: `/tmp/spp2_r13do_pool_brief.md`
+- Dispatcher pool entry: empty for HexChess (per R12 recall); the
+  team agent harness is used (workspace-agnostic; works from the
+  dispatcher shell).
+- Run: `run_00003` at `spp2` (status: running at dispatch time).
+- Awaiting completion before merge.
