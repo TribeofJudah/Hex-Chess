@@ -1,75 +1,128 @@
-/* T7 scope: board-side retro tokens. Base 8-bit palette, pixel font util
-   and CRT effects live app-wide in src/index.css; these are the tokens the
-   board and pieces add on top. */
+/* Board + component skin for the poster theme (R14 / t60).
+   The app-wide palette lives in src/index.css; these are the tokens the
+   board, the pieces and the panels add on top. Both moods are driven off the
+   same `data-theme` / prefers-color-scheme switch as the palette — see
+   src/index.css for why the dark block appears twice. */
 
 :root {
-  /* Cell tints (Gliński's three board colours, center = mid). Kept dim so
-     white glyphs hold contrast on the lightest cells. */
-  --cell-light: #44446c;
-  --cell-mid: #33335a;
-  --cell-dark: #23233e;
-  --cell-border: #10101c;
-  --cell-hover: #f4a825;
-  --alert: #d84a4a;
+  /* Gliński's three board colours, centre = mid. Light: the art-nouveau
+     postcard set — cream, peach, warm grey. */
+  --cell-light: #f3e9d6;
+  --cell-mid: #e9b98f;
+  --cell-dark: #b9b2a6;
+  --cell-border: var(--ink);
+  --cell-stroke: 1.5px;
+  --cell-hover: var(--cobalt);
+  --alert: var(--terracotta);
 
-  --piece-white: #f0f0e8;
-  --piece-white-accent: #44446a;
-  --piece-black: #46467a;
-  --piece-black-accent: #e8e8f4;
+  /* Pieces: cream body, ink outline, orange rim at the base; charcoal body
+     with an orange rim for black. */
+  --piece-white: #fdf8ee;
+  --piece-white-accent: var(--ink);
+  --piece-black: #2b2724;
+  --piece-black-accent: var(--orange);
+  --piece-stroke: 1.1;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    /* Wireframe: black fill, 1px white rules, the three board colours told
+       apart by stroke density instead of hue. */
+    --cell-light: #000;
+    --cell-mid: rgb(255 255 255 / 8%);
+    --cell-dark: rgb(255 255 255 / 16%);
+    --cell-border: #f4f1ea;
+    --cell-stroke: 1px;
+    --cell-hover: #f4f1ea;
+
+    /* Outline-only pieces; black keeps a filled body so the two sides stay
+       apart without a hue to carry them. */
+    --piece-white: transparent;
+    --piece-white-accent: #f4f1ea;
+    --piece-black: #2a2a2a;
+    --piece-black-accent: #f4f1ea;
+    --piece-stroke: 1.3;
+  }
+}
+
+:root[data-theme='dark'] {
+  --cell-light: #000;
+  --cell-mid: rgb(255 255 255 / 8%);
+  --cell-dark: rgb(255 255 255 / 16%);
+  --cell-border: #f4f1ea;
+  --cell-stroke: 1px;
+  --cell-hover: #f4f1ea;
+
+  --piece-white: transparent;
+  --piece-white-accent: #f4f1ea;
+  --piece-black: #2a2a2a;
+  --piece-black-accent: #f4f1ea;
+  --piece-stroke: 1.3;
 }
 
 .hxc-wrapper {
   position: relative;
   display: inline-block;
   max-width: 100%;
-  background: var(--color-bg);
+  background: var(--paper);
   padding: 12px;
-  border: var(--border-chunky);
+  border: 2px solid var(--ink);
+  box-shadow: var(--shadow);
 }
 
-/* Toggleable CRT scanlines, applied on the wrapper. */
-.hxc-wrapper--scanlines::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0 2px,
-    rgb(0 0 0 / 22%) 2px 4px
-  );
-}
+/* `.hxc-wrapper--scanlines` is still emitted by HexBoard so the existing
+   test and ControlBar prop keep their hook, but the CRT overlay is gone. */
 
-/* Pixel typeface utility for board labels and captions. */
+/* Display typeface utility for board captions. */
 .hxc-font {
-  font-family: 'Press Start 2P', monospace;
-  letter-spacing: 1px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
 }
 
 .hxc-svg {
   display: block;
 }
 
-/* Highlight ring for legal-move / check markers (added in T7/T8). */
+/* Pieces. One plinth path + one body path per glyph; colour comes from the
+   `--piece-*` tokens so the same markup is a risograph print in light mode
+   and a wireframe in dark. */
+.hxc-piece {
+  stroke-width: var(--piece-stroke);
+  stroke-linejoin: round;
+}
+
+/* --- Cell states (T7) -----------------------------------------------------
+   Every state is told apart by stroke pattern as well as colour, so the
+   monochrome dark mood loses nothing: selected = thick solid, last move =
+   dashed, check = dotted, legal target = a filled dot. */
+
+.hxc-cell {
+  stroke-width: var(--cell-stroke);
+}
+
 .hxc-cell--legal {
   fill: var(--cell-hover);
   opacity: 0.45;
 }
 
-/* Cell states (T7). Strokes only: inline fill stays tint-accurate. */
 .hxc-cell--selected {
   stroke: var(--cell-hover);
   stroke-width: 3px;
 }
 
 .hxc-cell--last {
-  stroke: var(--cell-hover);
-  stroke-dasharray: 3 2;
+  stroke: var(--orange);
+  stroke-width: 2px;
+  stroke-dasharray: 4 3;
 }
 
 .hxc-cell--check {
   stroke: var(--alert);
   stroke-width: 3px;
+  stroke-dasharray: 1 3;
+  stroke-linecap: round;
 }
 
 /* Interactive cells. */
@@ -80,77 +133,104 @@
 /* Hover only on real pointers: touch taps would stick a hover stroke. */
 @media (hover: hover) and (pointer: fine) {
   .hxc-cell[tabindex]:hover {
-    stroke: var(--color-accent);
+    stroke: var(--cell-hover);
+    stroke-width: 2.5px;
   }
 }
 
 .hxc-cell[tabindex]:focus-visible {
-  outline: 2px solid var(--color-accent, #f4a825);
+  outline: 2px solid var(--cobalt);
   outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hxc-cell {
+    transition:
+      stroke 120ms ease-out,
+      stroke-width 120ms ease-out;
+  }
 }
 
 /* Glyph strip. */
 .hxc-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
   margin-top: 12px;
 }
 
-/* Control bar (T7). */
+/* --- Controls ------------------------------------------------------------ */
+
 .hxc-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   width: 100%;
   margin-top: 12px;
 }
 
+/* Mono caps, hairline rule, no fill until you touch it — a printed button. */
 .hxc-button {
-  font-family: var(--font-pixel, 'Press Start 2P', monospace);
-  /* 12px floor for legibility; uppercase comes from text-transform below. */
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--color-text, #f8f8f2);
-  background: var(--color-panel, #1a1a2e);
-  border: var(--border-chunky);
-  padding: 10px 14px;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
+  padding: 9px 13px;
   cursor: pointer;
 }
 
 .hxc-button:hover:not(:disabled) {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .hxc-button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
+.hxc-button:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 2px;
+}
+
+/* Toggled-on reads as a cobalt plate: the one saturated fill in the UI. */
 .hxc-switch[aria-pressed='true'] {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  background: var(--cobalt);
+  border-color: var(--cobalt);
+  color: var(--paper);
 }
 
-/* Turn / status line (T8 will drive this from game state). */
+/* Turn / status line. */
 .hxc-status {
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-text);
-  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin: 0 0 10px;
 }
 
-/* Move history panel (T8). */
+/* --- Move history -------------------------------------------------------- */
+
 .hxc-movelist {
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-text);
-  background: var(--color-panel);
-  border: var(--border-chunky);
-  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  padding: 12px;
   width: 100%;
+  min-width: 15rem;
+  text-align: left;
 }
 
 .hxc-grid {
@@ -161,8 +241,10 @@
 }
 
 .hxc-movelist__head {
-  color: var(--color-text-dim);
-  border-bottom: 2px solid var(--color-border);
+  color: var(--ink-dim);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--ink);
   padding-bottom: 6px;
   margin-bottom: 6px;
 }
@@ -181,65 +263,101 @@
 }
 
 .hxc-movelist__num {
-  color: var(--color-text-dim);
+  color: var(--ink-dim);
 }
 
 .hxc-movelist__empty {
-  color: var(--color-text-dim);
+  color: var(--ink-dim);
+  font-style: italic;
 }
 
 .hxc-movelist__turn {
   margin: 8px 0 0;
   padding-top: 6px;
-  border-top: 2px solid var(--color-border);
-  color: var(--color-accent);
+  border-top: 1px solid var(--ink);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  color: var(--ink);
 }
 
-/* Game-over banner (T8). */
+/* Move-list jump buttons (T14). */
+.hxc-movelist__move {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Highlight = inverted ink, so it survives the monochrome mood. */
+.hxc-movelist__move:hover:not(:disabled),
+.hxc-movelist__move[aria-current='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.hxc-movelist__move:disabled {
+  cursor: default;
+}
+
+/* --- Banners ------------------------------------------------------------- */
+
+/* Game over: the poster headline. */
 .hxc-banner {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  background: var(--color-panel);
+  gap: 12px;
+  background: var(--panel);
   border: 2px solid var(--alert);
-  box-shadow: 0 0 0 2px var(--color-bg);
-  padding: 12px;
-  margin-top: 12px;
+  box-shadow: var(--shadow);
+  padding: 16px 20px;
+  margin-top: 14px;
 }
 
 .hxc-banner__text {
   margin: 0;
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
 
-/* Promotion chooser banner (t45). */
+/* Promotion chooser (t45). */
 .hxc-promo {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--color-panel);
-  border: 2px solid var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-bg);
-  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  border-left: 6px solid var(--mustard);
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
   margin-top: 12px;
   margin-bottom: 12px;
 }
 
 .hxc-promo__text {
-  margin: 0 4px 0 0;
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-accent);
+  margin: 0 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
 
 .hxc-promo__hint {
   margin-left: auto;
-  font-family: var(--font-pixel);
-  font-size: 8px;
-  color: var(--color-text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }
 
 /* Draw-offer banner (t49). */
@@ -247,26 +365,29 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--color-panel);
-  border: 2px solid var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-bg);
-  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--ink);
+  border-left: 6px solid var(--mustard);
+  box-shadow: var(--shadow);
+  padding: 10px 14px;
   margin-top: 12px;
   margin-bottom: 12px;
 }
 
 .hxc-draw__text {
-  margin: 0 4px 0 0;
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-accent);
+  margin: 0 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink);
 }
+
+/* --- Layout -------------------------------------------------------------- */
 
 /* Board + move log side by side on wide screens, stacked on narrow. */
 .app__layout {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 20px;
   align-items: flex-start;
   justify-content: center;
 }
@@ -293,53 +414,43 @@
   }
 }
 
-/* Move-list jump buttons (T14). */
-.hxc-movelist__move {
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-}
-
-.hxc-movelist__move:hover:not(:disabled),
-.hxc-movelist__move[aria-current='true'] {
-  color: var(--color-accent);
-}
-
-.hxc-movelist__move:disabled {
-  cursor: default;
-}
-
 /* Position editor (T13). */
 .hxc-position {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   margin-top: 12px;
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink);
 }
 
 .hxc-input {
   flex: 1 1 320px;
   min-width: 0;
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--color-text);
-  background: var(--color-panel);
-  border: var(--border-chunky);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--ink);
   padding: 8px 10px;
 }
 
+.hxc-input:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 1px;
+}
+
+/* Ink text with a coloured rule: terracotta on paper is only 3.7:1, so the
+   colour rides the rule rather than the glyphs. */
 .hxc-position__error {
   flex-basis: 100%;
   margin: 0;
-  color: var(--alert);
+  color: var(--ink);
+  border-left: 4px solid var(--alert);
+  padding-left: 6px;
 }
 
 /* AI depth selector (T15). */
@@ -347,110 +458,157 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: var(--font-pixel);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--color-text);
+  letter-spacing: 0.12em;
+  color: var(--ink);
 }
 
 .hxc-select {
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  color: var(--color-text);
-  background: var(--color-panel);
-  border: var(--border-chunky);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
   padding: 8px;
   cursor: pointer;
 }
 
 .hxc-select:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-/* --- Remote play room (t39) --------------------------------------------- */
+/* --- Remote play room (t39) ---------------------------------------------- */
+
 .hxc-room__bar {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin: 0.5rem 0;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
+  color: var(--ink);
 }
+
 .hxc-room__code {
-  letter-spacing: 0.15em;
-  color: #ffd166;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+  border-bottom: 2px solid var(--cobalt);
 }
+
 .hxc-room__spacer {
   flex: 1;
 }
+
+/* Status dots. The bar carries the same state as text, so colour is never
+   the only channel; every dot also gets an ink rule so it reads on any fill. */
 .hxc-room__dot {
   width: 0.6rem;
   height: 0.6rem;
+  border: 1px solid var(--ink);
   border-radius: 50%;
-  background: #888;
+  background: transparent;
   flex: none;
 }
+
 .hxc-room__dot--playing {
-  background: #4ade80;
+  background: var(--cobalt);
 }
+
 .hxc-room__dot--waiting,
 .hxc-room__dot--connecting,
 .hxc-room__dot--reconnecting {
-  background: #fbbf24;
+  background: var(--mustard);
 }
+
 .hxc-room__dot--version-mismatch,
 .hxc-room__dot--error,
 .hxc-room__dot--closed {
-  background: #f87171;
+  background: var(--alert);
 }
+
+/* --- Clock (t56 / R11) --------------------------------------------------- */
+
 .hxc-clock {
   display: inline-flex;
   gap: 0.4rem;
   align-items: center;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
 }
+
 .hxc-clock--empty {
-  color: #555;
+  color: var(--ink-dim);
 }
+
 .hxc-clock__seat {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  padding: 0.15rem 0.45rem;
-  border: 1px solid #444;
-  background: #14171c;
-  color: #b8b8b8;
-  min-width: 3.2rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--ink-dim);
+  background: transparent;
+  color: var(--ink-dim);
+  min-width: 3.4rem;
 }
+
 .hxc-clock__seat--active {
-  border-color: #ffd166;
-  color: #ffd166;
-  box-shadow: 0 0 0 1px #ffd166 inset;
+  border-color: var(--cobalt);
+  box-shadow: inset 0 0 0 1px var(--cobalt);
+  color: var(--ink);
 }
+
+/* Under 30s: a dashed rule, so the warning survives the monochrome mood. */
 .hxc-clock__seat--low {
-  border-color: #f87171;
-  color: #f87171;
-  animation: hxc-clock-pulse 1s steps(2, end) infinite;
+  border-style: dashed;
+  border-width: 2px;
+  border-color: var(--alert);
+  color: var(--ink);
 }
+
 .hxc-clock__seat--active.hxc-clock__seat--low {
-  border-color: #f87171;
-  box-shadow: 0 0 0 1px #f87171 inset;
+  box-shadow: inset 0 0 0 1px var(--alert);
 }
+
 .hxc-clock__label {
   font-size: 0.55rem;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: inherit;
   opacity: 0.7;
 }
+
 .hxc-clock__time {
-  font-size: 0.85rem;
-  font-weight: bold;
+  font-size: 0.9rem;
+  font-weight: 700;
   color: inherit;
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .hxc-clock__seat--low {
+    animation: hxc-clock-pulse 1s steps(2, end) infinite;
+  }
+}
+
+/* Reduced motion still needs the low-time state visible: hold a mid
+   opacity instead of pulsing between two extremes. */
+@media (prefers-reduced-motion: reduce) {
+  .hxc-clock__seat--low {
+    opacity: 0.7;
+  }
+}
+
 @keyframes hxc-clock-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
 }

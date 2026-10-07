@@ -12,7 +12,7 @@ import {
   type PieceColor,
   type PieceKind,
 } from './hexMath'
-import { GlyphRects, PieceLegend } from './pieces/Piece'
+import { PIECE_BOX, PieceLegend, PieceShape } from './pieces/Piece'
 import { PromotionBanner } from './PromotionBanner'
 import type { PendingPromotion } from './useGame'
 import './theme.css'
@@ -146,7 +146,6 @@ export function HexBoard({
                 points={cellPoints(center.x, -center.y, corners)}
                 fill={CELL_TINTS[tint]}
                 className={classes.join(' ')}
-                strokeWidth={Math.max(1, size * 0.06)}
                 interactive={interactive}
                 tabIndex={notation === focused ? 0 : -1}
                 onSelect={onCellClick}
@@ -187,7 +186,6 @@ function CellPolygon({
   points,
   fill,
   className,
-  strokeWidth,
   interactive,
   tabIndex,
   onSelect,
@@ -198,7 +196,6 @@ function CellPolygon({
   points: string
   fill: string
   className: string
-  strokeWidth: number
   interactive: boolean
   tabIndex: number
   onSelect?: ((notation: string) => void) | undefined
@@ -211,7 +208,6 @@ function CellPolygon({
       points={points}
       fill={fill}
       stroke="var(--cell-border)"
-      strokeWidth={strokeWidth}
       className={className}
       // SVG shapes aren't buttons; role+label make keyboard focus meaningful.
       role={interactive ? 'button' : undefined}
@@ -255,29 +251,22 @@ function PlacedPiece({
 }) {
   const cell = fileRankToCell(notation.slice(0, 1), Number(notation.slice(1)))
   const center = cellCenter(cell, size)
-  const width = size * 1.25
-  const height = (width * 10) / 8
-  // Sit the glyph on the lower half of the cell (SVG y points down).
-  const bottom = -center.y + (Math.sqrt(3) / 2) * size * 0.92
+  // 1.25 cell-radii tall: big enough to read, inside the cell's own height.
+  const height = size * 1.25
+  const width = (height * PIECE_BOX.w) / PIECE_BOX.h
+  // Sit the plinth (y = 23 of 24) just above the cell's lower vertex.
+  const baseline = -center.y + (Math.sqrt(3) / 2) * size * 0.78
   return (
     <svg
       x={center.x - width / 2}
-      y={bottom - height}
+      y={baseline - (height * 23) / PIECE_BOX.h}
       width={width}
       height={height}
-      viewBox="0 0 8 10"
-      shapeRendering="crispEdges"
+      viewBox={`0 0 ${PIECE_BOX.w} ${PIECE_BOX.h}`}
       role="img"
       aria-label={`${color} ${kind} on ${notation}`}
-      style={{
-        // One-px rim so dark glyphs read on dark cells and light on light.
-        filter:
-          color === 'black'
-            ? 'drop-shadow(0 0 1px var(--piece-black-accent))'
-            : 'drop-shadow(0 0 1px var(--cell-border))',
-      }}
     >
-      <GlyphRects kind={kind} color={color} />
+      <PieceShape kind={kind} color={color} />
     </svg>
   )
 }
