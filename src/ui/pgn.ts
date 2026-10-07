@@ -24,6 +24,8 @@ export function pgnResult(gameOver: GameOver | null): string {
  *   carry a `winner` on the wire; `stalemate` is the Gliński 3/4–1/4
  *   split (NOT a draw — see `src/rules/adapter.ts` and §5 of
  *   `claudedocs/PGN_DRAW.md`). `draw50` and `repetition` have no winner.
+ * - `resign` (t65): a seated player conceded. The wire `winner` names the
+ *   OPPONENT of the resigning seat, so the annotation names the loser.
  */
 export type RoomEndReason =
   | 'draw_agreement'
@@ -32,6 +34,7 @@ export type RoomEndReason =
   | 'stalemate'
   | 'draw50'
   | 'repetition'
+  | 'resign'
 
 /**
  * PGN text using the move list's SAN, one `n. white black` line per move pair.
@@ -58,6 +61,9 @@ export type RoomEndReason =
  *   rule]*`; no winner.
  * - `roomEndReason === 'repetition'` (R12) => comment `*[Draw by threefold
  *   repetition]*`; no winner.
+ * - `roomEndReason === 'resign'` (t65) => comment `*[White/Black resigned]*`
+ *   naming the LOSER. The wire's `winner` names the OPPOSITE side, so we flip
+ *   it here. The result token is `1-0` / `0-1` from `pgnResult(gameOver)`.
  * - `roomEndReason === undefined` => no comment; header is the source of
  *   truth from `pgnResult(gameOver)` (unchanged from Rounds 1-8).
  *
@@ -139,6 +145,11 @@ export function toPgn(
   ) {
     // R12: server-enforced threefold repetition. Result is `1/2-1/2`.
     lines.push('*[Draw by threefold repetition]*')
+  } else if (roomEndReason === 'resign' && gameOver?.kind === 'resign') {
+    // t65: a seated player resigned. The wire `winner` is the OPPONENT; the
+    // annotation names the loser (mirrors the t56 `time` comment shape).
+    const loser = gameOver.winner === 'white' ? 'Black' : 'White'
+    lines.push(`*[${loser} resigned]*`)
   }
   lines.push(result, '')
   return lines.join('\n')

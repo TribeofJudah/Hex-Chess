@@ -35,6 +35,15 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
   const game = useRemoteGame(roomCode, connect ? { connect } : {})
   const canPlay = game.status === 'playing' || game.status === 'waiting'
   const [scanlines, setScanlines] = useState(true)
+  // Resign confirmation (t65): the button opens an inline banner (the existing
+  // draw-banner pattern) rather than a window.confirm; confirming streams the
+  // `resign` frame. Only a seated player in a live game may resign (the room
+  // double-enforces this).
+  const [confirmResign, setConfirmResign] = useState(false)
+  const canResign =
+    canPlay &&
+    (game.seat === 'white' || game.seat === 'black') &&
+    !game.gameOver
   // Offer affordances (t49): only the local seat's own turn, with a peer
   // able to answer, no offer already open and a live game — the room double-
   // enforces the same rules on the wire.
@@ -97,6 +106,9 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
         scanlines={scanlines}
         onToggleScanlines={() => setScanlines((on) => !on)}
         onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
+        // ControlBar's `onResign` is a plain optional prop (no `| undefined`),
+        // so spread it in only when enabled (exactOptionalPropertyTypes).
+        {...(canResign ? { onResign: () => setConfirmResign(true) } : {})}
         // t55 remote export: the room's terminal say threads into the PGN
         // (a mirrored draw agreement exports 1/2-1/2 + annotation).
         onExportPgn={() =>
@@ -132,6 +144,37 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
             onAccept={() => game.chooseOffer('accept')}
             onDecline={() => game.chooseOffer('decline')}
           />
+          {confirmResign && !game.gameOver ? (
+            <div
+              className="hxc-draw"
+              role="group"
+              aria-label="Confirm resignation"
+              data-testid="resign-confirm"
+            >
+              <p className="hxc-draw__text" data-testid="resign-confirm-text">
+                Resign this game?
+              </p>
+              <button
+                type="button"
+                className="hxc-button"
+                data-testid="resign-confirm-yes"
+                onClick={() => {
+                  setConfirmResign(false)
+                  game.sendResign()
+                }}
+              >
+                Resign
+              </button>
+              <button
+                type="button"
+                className="hxc-button"
+                data-testid="resign-confirm-cancel"
+                onClick={() => setConfirmResign(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
           {game.gameOver ? (
             <GameOverBanner
               gameOver={game.gameOver}

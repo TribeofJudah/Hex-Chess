@@ -5,7 +5,9 @@ describe('worker protocol codec', () => {
   it('exposes the current version', () => {
     // Round 12 (t62): bumped to 3 when `roomEnd.reason` widened to include
     // the four engine game-end values. See claudedocs/TERMINALS.md §3.
-    expect(PROTOCOL_VERSION).toBe(3)
+    // t65 (R15): bumped to 4 for the client `resign` frame and the seventh
+    // `roomEnd.reason` value, 'resign'.
+    expect(PROTOCOL_VERSION).toBe(4)
   })
 
   it('decodes every client frame shape', () => {
@@ -22,6 +24,7 @@ describe('worker protocol codec', () => {
       },
       { v: 1, type: 'resync', revision: 3 },
       { v: 1, type: 'ping', t: 7 },
+      { v: 1, type: 'resign' },
     ]
     for (const frame of frames) {
       expect(decodeClient(JSON.stringify(frame))).toEqual(frame)

@@ -3,7 +3,8 @@
  * (t48 adds the draw frames; t56 adds the clock frames and bumps
  * `PROTOCOL_VERSION` to 2; R12 adds the server-side terminal reasons
  * `checkmate` / `stalemate` / `draw50` / `repetition` and bumps
- * `PROTOCOL_VERSION` to 3).
+ * `PROTOCOL_VERSION` to 3; t65 adds the client `resign` frame and the
+ * `roomEnd.reason` value `resign`, bumping `PROTOCOL_VERSION` to 4).
  */
 import type { GameMove } from './useGame'
 import type { PieceColor, PieceKind } from './hexMath'
@@ -75,7 +76,19 @@ export interface DeclineDrawMsg {
 }
 export type DrawMsg = OfferDrawMsg | AcceptDrawMsg | DeclineDrawMsg
 
-export type ClientMsg = JoinMsg | MoveMsg | ResyncMsg | PingMsg | DrawMsg
+/** Resign (t65): a seated player concedes; the room ends `resign`. No payload. */
+export interface ResignMsg {
+  v: number
+  type: 'resign'
+}
+
+export type ClientMsg =
+  | JoinMsg
+  | MoveMsg
+  | ResyncMsg
+  | PingMsg
+  | DrawMsg
+  | ResignMsg
 
 // ---- server → client -------------------------------------------------------
 
@@ -158,6 +171,7 @@ export interface DrawOfferMsg {
  *   carry a `winner` (Gliński stalemate is a 3/4–1/4 split, NOT a draw —
  *   `winner` is the side that trapped the opponent's king). `draw50` and
  *   `repetition` have no winner.
+ * - `resign` (t65): a seated player conceded; `winner` is the opponent.
  */
 export interface RoomEndMsg {
   v: number
@@ -170,6 +184,7 @@ export interface RoomEndMsg {
     | 'stalemate'
     | 'draw50'
     | 'repetition'
+    | 'resign'
   winner?: PieceColor
 }
 /**
@@ -202,8 +217,12 @@ export type ServerMsg =
  * `roomEnd.reason` widens to include all six. v2 clients are rejected at
  * join with `version_mismatch` because their `RoomEndMsg.reason` cannot
  * represent the new terminals.
+ *
+ * Bumped to 4 in t65: the client can send a `resign` frame and the server can
+ * answer `roomEnd{reason:'resign'}`. A v3 client understands neither, so the
+ * join handshake rejects it with `version_mismatch`.
  */
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 export type ErrCode =
   | 'version_mismatch'

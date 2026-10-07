@@ -293,7 +293,48 @@ export class RoomCore {
       case 'declineDraw':
         this.draw(conn, msg)
         break
+      case 'resign':
+        this.resign(conn)
+        break
     }
+  }
+
+  /**
+   * Resign (t65): a seated player concedes and the room ends with
+   * `roomEnd{reason:'resign', winner: other(resigner)}`. Only a seated player
+   * in a live game may resign — a spectator or an ended room is refused
+   * through the same error path as a bad frame, mutating nothing and
+   * broadcasting nothing.
+   */
+  resign(conn: Conn): void {
+    const seated = this.live.get(conn.clientId)
+    if (!seated || seated.seat === 'spectator') {
+      conn.send({
+        v: PROTOCOL_VERSION,
+        type: 'error',
+        code: 'bad_message',
+        message: 'spectators cannot resign',
+      })
+      return
+    }
+    if (this.ended) {
+      conn.send({
+        v: PROTOCOL_VERSION,
+        type: 'error',
+        code: 'bad_message',
+        message: 'the room has ended',
+      })
+      return
+    }
+    const seatColor: 'white' | 'black' =
+      seated.seat === 'black' ? 'black' : 'white'
+    this.endRoom({
+      v: PROTOCOL_VERSION,
+      type: 'roomEnd',
+      code: this.room,
+      reason: 'resign',
+      winner: other(seatColor),
+    })
   }
 
   join(conn: Conn): void {

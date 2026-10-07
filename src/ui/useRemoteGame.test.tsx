@@ -489,6 +489,7 @@ describe('useRemoteGame draw agreement (t49)', () => {
     ['stalemate', { kind: 'stalemate', winner: 'black' }] as const,
     ['draw50', { kind: 'fifty-move' }] as const,
     ['repetition', { kind: 'repetition' }] as const,
+    ['resign', { kind: 'resign', winner: 'white' }] as const,
   ])(
     'mirrors a server-delivered roomEnd reason (%s) into the right gameOver + roomEndReason',
     (reason, expectedGameOver) => {
@@ -504,7 +505,8 @@ describe('useRemoteGame draw agreement (t49)', () => {
         code: 'ABCD',
         reason,
         ...(expectedGameOver.kind === 'checkmate' ||
-        expectedGameOver.kind === 'stalemate'
+        expectedGameOver.kind === 'stalemate' ||
+        expectedGameOver.kind === 'resign'
           ? { winner: expectedGameOver.winner }
           : {}),
       }
@@ -513,6 +515,27 @@ describe('useRemoteGame draw agreement (t49)', () => {
       expect(result.current.roomEndReason).toBe(reason)
     },
   )
+
+  it('sends the resign frame, gated on a seated, live connection (t65)', () => {
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    act(() => result.current.sendResign())
+    expect(current().last()).toEqual({ v: PROTOCOL_VERSION, type: 'resign' })
+    // A spectator cannot resign (the room double-enforces; the hook gates too).
+    act(() =>
+      current().recv(welcomeMsg({ seat: 'spectator', revision: 0, moves: [] })),
+    )
+    const before = current().sent.length
+    act(() => result.current.sendResign())
+    expect(current().sent.length).toBe(before)
+    // Nor once the socket is closed by us.
+    act(() => result.current.leave())
+    const count = current().sent.length
+    act(() => result.current.sendResign())
+    expect(current().sent.length).toBe(count)
+  })
 
   it('treats an invalid_draw NACK as a soft refusal, not a room error', () => {
     const { connect, current } = makeSocketFactory()

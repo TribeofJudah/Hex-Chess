@@ -70,4 +70,53 @@ describe('RemoteRoom', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Leave' }))
     expect(onExit).toHaveBeenCalledTimes(1)
   })
+
+  // t65: the Resign button opens an inline confirm (never window.confirm);
+  // confirming streams the `resign` frame, cancelling sends nothing.
+  it('confirms a resignation through the banner before sending resign', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'white' })))
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'peer',
+        connected: true,
+        seats: { white: true, black: true },
+      }),
+    )
+
+    // The ControlBar button only opens the confirm banner.
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    expect(screen.getByTestId('resign-confirm')).toBeTruthy()
+    expect(current().sent).not.toContainEqual({
+      v: PROTOCOL_VERSION,
+      type: 'resign',
+    })
+
+    // Cancelling hides the banner and sends nothing.
+    fireEvent.click(screen.getByTestId('resign-confirm-cancel'))
+    expect(screen.queryByTestId('resign-confirm')).toBeNull()
+
+    // Confirming streams the frame and closes the banner.
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    fireEvent.click(screen.getByTestId('resign-confirm-yes'))
+    expect(current().last()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'resign',
+    })
+    expect(screen.queryByTestId('resign-confirm')).toBeNull()
+  })
+
+  it('keeps the Resign button disabled for a spectator', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'spectator' })))
+    expect(
+      (screen.getByRole('button', { name: 'Resign' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+  })
 })

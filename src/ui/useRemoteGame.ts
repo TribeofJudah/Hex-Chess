@@ -81,6 +81,10 @@ export interface UseRemoteGameResult extends UseGameResult {
       acceptDraw / declineDraw frames. The room derives the acting seat from
       the connection; only the offer frame carries an advisory `by`. */
   sendDraw: (kind: DrawOfferKind) => void
+  /** Resign over the wire (t65): streams the `resign` frame. A no-op unless
+      the connection is a seated player in a sendable (live) state; the room
+      double-enforces the same rule. */
+  sendResign: () => void
   leave: () => void
 }
 
@@ -182,6 +186,13 @@ export function useRemoteGame(
     [send, roomCode, seat, status],
   )
 
+  /** Resign over the wire (t65). Inert unless sendable and seated. */
+  const sendResign = useCallback(() => {
+    if (!SENDABLE.includes(status)) return
+    if (!colorOf(seat)) return
+    send({ v: PROTOCOL_VERSION, type: 'resign' })
+  }, [send, seat, status])
+
   useEffect(() => {
     closedByUsRef.current = false
     mismatchRef.current = false
@@ -274,10 +285,10 @@ export function useRemoteGame(
           break
         }
         case 'roomEnd': {
-          // Terminal draw-agreement frame (t48); also fires for a clock
-          // timeout in t56. `winner` is the side that WON (the OPPOSITE of
-          // the seat that ran out); we pass it through so the local reducer
-          // can mark the right `gameOver` shape.
+          // Terminal frame: t48 draw agreement, t56 clock timeout, R12
+          // engine game-ends, t65 resign. `winner` is the side that WON (the
+          // OPPOSITE of the seat that ran out or resigned); we pass it through
+          // so the local reducer can mark the right `gameOver` shape.
           gameRef.current.recvRoomEnd(msg.reason, msg.winner)
           break
         }
@@ -371,14 +382,15 @@ export function useRemoteGame(
     })
   }, [game.moves, status, send])
 
-  // Terminal say of the wire (t55 + t56 + R12): the reducer carries the
+  // Terminal say of the wire (t55 + t56 + R12 + t65): the reducer carries the
   // wire reason on `game.roomEndReason` (set by `recvRoomEnd` in useGame),
   // so it's exposed verbatim via `...game` in the return below. The full
   // union is `'draw_agreement' | 'time' | 'checkmate' | 'stalemate' |
-  // 'draw50' | 'repetition' | null`; each reason maps to a matching
-  // `gameOver` kind (`agreement` / `resign` / `checkmate` / `stalemate` /
-  // `fifty-move` / `repetition`). `RemoteRoom.tsx` and `pgn.ts` consume the
-  // reason + the shaped `gameOver` directly — no extra translation here.
+  // 'draw50' | 'repetition' | 'resign' | null`; each reason maps to a
+  // matching `gameOver` kind (`agreement` / `resign` / `checkmate` /
+  // `stalemate` / `fifty-move` / `repetition`). `RemoteRoom.tsx` and `pgn.ts`
+  // consume the reason + the shaped `gameOver` directly — no extra
+  // translation here.
 
   const leave = useCallback(() => {
     closedByUsRef.current = true
@@ -398,6 +410,7 @@ export function useRemoteGame(
     ...(clock !== undefined ? { clock } : {}),
     sendMove: game.applyMove,
     sendDraw,
+    sendResign,
     // The wire half of chooseOffer (t49): nothing is dispatched locally
     // because the state updates arrive as the server's per-seat frames.
     chooseOffer: sendDraw,
