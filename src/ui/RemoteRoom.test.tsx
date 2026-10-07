@@ -16,14 +16,34 @@ describe('RemoteRoom', () => {
     render(<RemoteRoom roomCode="ABCD" connect={connect} />)
 
     expect(screen.getByText('ABCD')).toBeTruthy()
-    expect(screen.getByTestId('seat-status').textContent).toBe(
-      'You are Spectating · waiting for opponent',
-    )
+    // B4: `seat` defaults to 'spectator', but until the welcome frame we
+    // have not been assigned anything — don't claim a seat yet.
+    expect(screen.getByTestId('seat-status').textContent).toBe('Connecting…')
 
     act(() => current().open())
     act(() => current().recv(welcomeMsg({ seat: 'black' })))
     expect(screen.getByTestId('seat-status').textContent).toBe(
       'You are Black · waiting for opponent',
+    )
+  })
+
+  it('shows Spectating only once the server assigns that seat (B4)', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'spectator' })))
+    expect(screen.getByTestId('seat-status').textContent).toBe(
+      'You are Spectating · waiting for opponent',
+    )
+  })
+
+  it('shows You are White once the welcome assigns White (B4)', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'white' })))
+    expect(screen.getByTestId('seat-status').textContent).toBe(
+      'You are White · waiting for opponent',
     )
   })
 

@@ -130,6 +130,12 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
       (retryInSec > 0 ? ` — next try in ${retryInSec}s` : '')
   }
 
+  // B4 (t67): `seat` reads 'spectator' until the welcome frame lands, so
+  // don't claim a seat we have not been given yet.
+  const seatLine = game.seatAssigned
+    ? `You are ${SEAT_LABEL[game.seat]}`
+    : 'Connecting…'
+
   return (
     <main className="app">
       <header className="app__header">
@@ -155,7 +161,8 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
           </span>
         </div>
         <p className="app__subtitle" data-testid="seat-status">
-          You are {SEAT_LABEL[game.seat]} · {presence}
+          {seatLine}
+          {game.seatAssigned ? ` · ${presence}` : ''}
         </p>
       </header>
 

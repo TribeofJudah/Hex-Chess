@@ -67,6 +67,9 @@ export interface UseRemoteGameOptions {
 export interface UseRemoteGameResult extends UseGameResult {
   roomCode: string
   seat: Seat
+  /** False until the welcome frame lands: `seat` is 'spectator' by default,
+      so consumers must not render it as a real assignment before then (B4). */
+  seatAssigned: boolean
   status: RemoteStatus
   peerConnected: boolean
   /** Sticky companion to `peerConnected`: true once an opponent has sat
@@ -136,6 +139,9 @@ export function useRemoteGame(
   const game = useGame(rules)
   const [status, setStatus] = useState<RemoteStatus>('connecting')
   const [seat, setSeat] = useState<Seat>('spectator')
+  // B4 (t67): `seat` starts as 'spectator' before the welcome frame, so the
+  // UI cannot tell "not assigned yet" from "server seated us as a spectator".
+  const [seatAssigned, setSeatAssigned] = useState(false)
   const [peerConnected, setPeerConnected] = useState(false)
   // Sticky: once an opponent sat down, a later disconnect reads as
   // "opponent disconnected" rather than "waiting for opponent" (t67).
@@ -253,6 +259,7 @@ export function useRemoteGame(
           setNextRetryAt(undefined)
           revisionRef.current = msg.revision
           setSeat(msg.seat)
+          setSeatAssigned(true)
           rebuild(msg.moves)
           // t56: welcome may carry the clock snapshot (present when the room
           // already had one created; absent on a v1 server). Mirror it.
@@ -493,6 +500,7 @@ export function useRemoteGame(
     ...game,
     roomCode,
     seat,
+    seatAssigned,
     status,
     peerConnected,
     hasPeerEver,
