@@ -1,7 +1,11 @@
 # Remote-play room protocol (ROOM_PROTO)
 
-Status: **draft v1** — mirrors the client module `src/ui/protocol.ts` and the
-room logic in `worker/src/room.ts` (t41). This document is the source of truth:
+Status: **draft v3** — mirrors the client module `src/ui/protocol.ts` and the
+room logic in `worker/src/room.ts` (t41). `PROTOCOL_VERSION = 3` (t62, R12):
+`RoomEndMsg.reason` widens from two values to six (`draw_agreement` | `time`
+| `checkmate` | `stalemate` | `draw50` | `repetition`); see `TERMINALS.md`
+for the engine-game-end semantics. v2 clients are rejected at join with
+`version_mismatch` (§6). This document is the source of truth:
 change it first, then both code copies.
 
 The goal is a two-player remote game of Gliński hex chess: one WebSocket per
@@ -90,6 +94,14 @@ interface PeerMsg    { v: number; type: 'peer';    connected: boolean; seats: { 
 interface ErrorMsg   { v: number; type: 'error';   code: ErrCode; message: string;
                        expectedProtocol?: number; receivedProtocol?: number }
 interface PongMsg    { v: number; type: 'pong';    t: number }
+interface DrawOfferMsg { v: number; type: 'drawOffer'; code: string;
+                         state: 'offered' | 'awaiting' | 'idle'; by?: Seat }
+interface RoomEndMsg { v: number; type: 'roomEnd'; code: string;
+                       reason: 'draw_agreement' | 'time' | 'checkmate'
+                             | 'stalemate' | 'draw50' | 'repetition';
+                       winner?: 'white' | 'black' }
+interface ClockMsg   { v: number; type: 'clock';   code: string;
+                       clock: { white: number; black: number; since: number } }
 
 type Seat = 'white' | 'black' | 'spectator'
 interface WireMove { from: string; to: string; promotion?: PieceKind; ply: number; color: PieceColor }
@@ -212,10 +224,10 @@ view, and validation, lives in the section noted.
 |---------------|------------|---------------------------------|---------------------------------------------|
 | `move`        | client→server| §5 (above)                     | the only thing that mutates the ply counter |
 | `state`       | server→client| §3.2, §4                       | rebuild frame: revision + moves + occupants |
-| `welcome`     | server→client| §4, §6, `CLOCK.md`             | post-`join` rebuild; carries `protocol`, optional `clock` + `ended` (v2) |
-| `clock`       | server→client| `CLOCK.md` §6                  | per-seat view of the server-authoritative timer (v2) |
+| `welcome`     | server→client| §4, §6, `CLOCK.md`             | post-`join` rebuild; carries `protocol`, optional `clock` + `ended` |
+| `clock`       | server→client| `CLOCK.md` §6                  | per-seat view of the server-authoritative timer |
 | `drawOffer`   | both ways  | §9 / `DRAW_PROTO.md`            | per-seat view of the open-offer state machine |
-| `roomEnd`     | server→client| §9 / `DRAW_PROTO.md` / `CLOCK.md` §7 | terminal-state broadcast; `draw_agreement` or `time` + optional `winner` (v2) |
+| `roomEnd`     | server→client| §9 / `DRAW_PROTO.md` / `CLOCK.md` §7 / `TERMINALS.md` | terminal-state broadcast; one of six `reason` values + optional `winner` |
 | `error`       | server→client| §3.3                           | NACK with `code` + resync `state`           |
 
 A frame is "control" iff the room persists it (snapshots `clock`,
@@ -323,10 +335,14 @@ unless the server closes it).
 | room survives eviction (t44)      | rebuild from welcome after respawn (§7)          | "a snapshot revives the room…"               |
 | revived room resumes position(t44)| —                                                | "a revived room continues from the restored…"|
 
-### 8.3 explicit non-goals for v1
+### 8.3 explicit non-goals for v3
 
-- Resign, draw agreement, and clocks are live (see §9 + `CLOCK.md`).
-  No checkmate / stalemate / 50-move server-side enforcement yet.
+- Draw agreement (t48, R8/R9), clocks (t56, R10/R11), and the engine
+  game-end terminals (checkmate / stalemate / draw50 / repetition, t62, R12)
+  are live (see §9 + `CLOCK.md` + `TERMINALS.md`). Six `roomEnd` reasons
+  are wire-emitted.
+- Resign is **not** yet on the wire (candidates for Round 13; would bump
+  `PROTOCOL_VERSION` to 4).
 - No `room_full`: spectators are allowed instead.
 - Seats are not persisted across DO eviction; a respawned room re-seats the
   first joiners (§4.7).
@@ -356,9 +372,22 @@ types). Three client messages are added — `offerDraw{code, by}`,
   flagged in `DRAW_PROTO.md` §8).
 - **Persistence.** `RoomSnapshot` carries `drawOffer`, `drawBy` and `ended`
   (§4), so a revived room keeps an open offer and resumes a terminal one.
-- **Terminal state.** An agreed draw and a clock timeout
-  (`roomEnd{reason:'time', winner}`, t56) are the two terminals in v1;
-  checkmate / stalemate / 50-move are not yet enforced server-side.
+- **Terminal state.** Six `roomEnd` reasons are wire-emitted in v3:
+  - `draw_agreement` (t48, R8): both seats consented; `winner` is absent.
+  - `time` (t56, R10): a clock ran out; `winner` names the OPPOSITE seat.
+  - `checkmate` (t62, R12): `status()` reports checkmate; `winner` names the
+    trapping side.
+  - `stalemate` (t62, R12): `status()` reports stalemate; `winner` names the
+    trapping side (Gliński scoring 3/4–1/4, NOT a draw).
+  - `draw50` (t62, R12): 50-move rule; no `winner`.
+  - `repetition` (t62, R12): threefold repetition; no `winner`.
+
+  The engine-game-end terminals (the four `t62` rows above) are
+  enforced by `checkTerminal()` after every accepted move in
+  `worker/src/room.ts`; the position-key array travels in
+  `RoomSnapshot.history` so a revived room keeps the counter across
+  DO eviction. See `TERMINALS.md` for the stalemate-winner semantic
+  and the worker's snapshot shape.
 - **Validation.** `validateDraw()` (`worker/src/validate.ts`) shape-checks the
   payload; `invalid_draw` is kept distinct from `invalid_move` on the wire.
 

@@ -1,15 +1,19 @@
 # Server-authoritative game clock (CLOCK)
 
-Status: **draft v1** — server-side only (t56). The UI that renders the two
-clocks is a later round; this document is the source of truth for the server
-half and for the frames that round will consume.
+Status: **draft v2** — server half landed in t56 (R10, `81bb4ec`); UI
+component landed in Round 11 (R11, `daaf6e8`, `<Clock>` in `RemoteRoom`).
+The server is now also the source of the four engine game-end terminals
+(checkmate / stalemate / draw50 / repetition) — `clock` and `roomEnd`
+share the same wire; the `time` terminal this document owns is one of six
+in v3 (`ROOM_PROTO.md` §3.2). See §6 for the protocol-bump history.
 
 The room times the two seats with a chess clock: the side to move burns time,
 a move earns the mover an increment, and a seat whose clock reaches zero loses
 the game. Frames ride the **existing** room WebSocket
 (`<worker-origin>/room/<CODE>`, JSON text — `ROOM_PROTO.md` §1); there is no new
-transport. `PROTOCOL_VERSION` goes **1 → 2** because `welcome` gained two
-required fields and `roomEnd.reason` gained a value — see §6.
+transport. `PROTOCOL_VERSION` went **1 → 2** here (welcome's required
+fields + the `time` reason) and **2 → 3** in t62 to add the engine
+terminals — see §6.
 
 `worker/src/clock.ts` holds the whole clock: pure arithmetic, no timers, no
 storage. `RoomCore` owns one `ClockState`; the Durable Object owns the 1 Hz
@@ -147,20 +151,31 @@ shape) cannot be left to guess — see §6.
 
 ---
 
-## 6. Protocol bump (1 → 2)
+## 6. Protocol bumps (1 → 2 in t56, 2 → 3 in t62)
 
-`PROTOCOL_VERSION` is `2`. `ROOM_PROTO.md` §2 bumps the version _only_ for
-incompatible message-shape changes, and this is one: `welcome` gained two
-required fields and `roomEnd.reason` gained a value. A v1 client reading a v2
-`welcome` would run a clock-less board against a clocked server, so the join
-handshake rejects it with `version_mismatch` instead.
+`PROTOCOL_VERSION` is currently `3`. The protocol has been bumped twice
+on the same wire:
+
+- **1 → 2** in **t56 / Round 10** (`81bb4ec`): `welcome` gained two required
+  fields (the clock + the `ended` flag) and `roomEnd.reason` gained the value
+  `'time'`. Both bumps are required — a v1 client reading a v2 `welcome`
+  would run a clock-less board against a clocked server, so the join
+  handshake rejects it with `version_mismatch` instead.
+- **2 → 3** in **t62 / Round 12** (`b56f131` worker fence, `a18fc69`
+  client mirror): `roomEnd.reason` widens from two values to six
+  (`draw_agreement` | `time` | `checkmate` | `stalemate` | `draw50`
+  | `repetition`). The four new reasons are the engine game-end
+  terminals enforced by `checkTerminal()` after every accepted move
+  — see `TERMINALS.md`. v2 clients are rejected at join with
+  `version_mismatch` because their `RoomEndMsg.reason` union cannot
+  represent the new values.
 
 > **Both copies must bump together.** The worker copy is
 > `worker/src/protocol.ts`; the client copy is `src/ui/protocol.ts`.
-> The t56 fence covers `worker/**` only, so the client bump is a **required
-> follow-up in the same commit** — a v1 client against this worker is rejected
-> at join. (This landed in `c8930f3`, the Round 10 PGN commit — both bumps
-> are now in `origin/dev` together.)
+> The t56 fence covered `worker/**` only; the client bump landed in
+> the same Round 10 PGN commit `c8930f3`. The t62 fence followed the
+> same pattern: worker-side `b56f131` first, then client-side `a18fc69`
+> cherry-picked on top. Both are now in `origin/dev` together.
 
 ---
 

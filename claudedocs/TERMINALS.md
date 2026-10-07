@@ -1,16 +1,16 @@
 # Engine-game-end terminals on the room (Round 12, t62)
 
-Date: 2026-10-05 · Branch: `round12(terminals-worker)` (this round; mirrored
-on `dev` once it lands)
+Date: 2026-10-06 · Branch: `dev` (worker fence `round12(terminals-worker)`
+at `b56f131`, client mirror `round12(terminals-client)` at `4139737`,
+stalemate-winner correction at `2af1863`, client cherry-pick at
+`a18fc69`). The dispatcher landed the merge on the same day.
 
-Source: dispatcher `dpp1` (worker fence). Status: **draft** — Round 12 lands
-this on the worker; the client UI lands in Round 13 and may amend the
-stalemate-winner call documented in §2.
-
-The room enforces the four engine game-end states (`checkmate`, `stalemate`,
-`draw50`, `repetition`) in addition to the two terminals it already had
-(`draw_agreement`, t48; `time` for a flagged clock, t56). This document is
-the source of truth for those wire-level decisions; the prototype lives in
+Status: **landed (t62)** — both worker and client are at
+`PROTOCOL_VERSION = 3`; the client mirror shipped in R12 (not Round 13).
+The stalemate-winner call (`other(turn)` = the trapping side) is the
+result of the dispatcher-level correction captured in commit `2af1863` — see
+§2 for the reasoning. This document is the source of truth for those
+wire-level decisions; the prototype lives in
 `worker/src/room.ts`, the wire shapes in `worker/src/protocol.ts`, the
 predicates in `src/rules/rules.ts` (`status()`), and the persistence contract
 in `worker/README.md` (RoomSnapshot).
@@ -158,10 +158,12 @@ re-emerges as terminal — see the snapshot-persistence test.
   `applyMove()`, `legalMoves()` are unchanged. The room is the bridge; the
   rules engine is the oracle.
 - **The client mirror (`src/ui/protocol.ts`, `src/ui/RemoteRoom.tsx`,
-  `src/ui/useRemoteGame.ts`)** — explicitly out of the worker fence. The
-  brief's hard constraint forbids it. The client UI for stalemate/draw50/
-  repetition banners, the result-line text, and the protocol bump on the
-  client side land in Round 13.
+  `src/ui/useRemoteGame.ts`, `src/ui/pgn.ts`)** — landed in **R12** in
+  commit `a18fc69` (cherry-picked on top of the dispatcher stalemate-fix
+  `2af1863`). The per-reason PGN export in `src/ui/pgn.ts` and the
+  banner text in `RemoteRoom.tsx` are covered there; the protocol bump
+  on the client side is mirrored in `src/ui/protocol.ts`. v2 clients
+  are rejected at join with `version_mismatch`.
 - **The other terminals (t48 + t56)** — `draw_agreement` and `time` are
   unchanged. They share the close-out path with the new four (set `ended`,
   freeze the clock, broadcast `roomEnd`), which is the only structural

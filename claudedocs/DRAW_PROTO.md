@@ -1,14 +1,17 @@
 # Draw by agreement — wire protocol (DRAW_PROTO)
 
-Status: **draft v1** — server-side only (t48). The client UI for offer /
-accept / decline is Round 9; this document is the source of truth for the
-server half and for the frames the client will handle.
+Status: **draft v2** — server-side only (t48), client UI landed in Round 9
+(R9, `6415790`). The draw-agreement half of the terminal-enforcement contract
+is unchanged; the rest of the wire bumped to `PROTOCOL_VERSION = 3` in R12
+to widen `roomEnd.reason` to six values. This document is the source of truth
+for the offer / accept / decline state machine and the
+`roomEnd{reason:'draw_agreement'}` terminal it owns.
 
 A draw may be agreed when one seat offers and the opponent accepts. Frames ride
 the **existing** room WebSocket (`<worker-origin>/room/<CODE>`, JSON text — see
-`ROOM_PROTO.md` §1); there is no new transport. `PROTOCOL_VERSION` is **not**
-bumped: these are additive message types, and a v1 client that ignores them is
-unaffected until Round 9 wires the UI.
+`ROOM_PROTO.md` §1); there is no new transport. `PROTOCOL_VERSION` was **not**
+bumped by t48: the frames are additive, and a v1 client that ignores them is
+unaffected. (R12 later bumped to 3 — see `ROOM_PROTO.md` §3.)
 
 ---
 
@@ -86,7 +89,19 @@ interface RoomEndMsg {
 
 `by` names the seat that most recently acted (offerer, or the accepter /
 decliner when the offer clears). `roomEnd{reason:'draw_agreement'}` is the
-terminal frame on acceptance; `draw_agreement` is the only reason in v1.
+terminal frame on acceptance. In v3 it is **one of six** wire-emitted reasons
+(this document owns only the first):
+
+- `draw_agreement` (this doc, t48 / R8–R9): both seats consented; no `winner`.
+- `time` (`CLOCK.md`, t56 / R10): a clock ran out; `winner` is the opponent.
+- `checkmate` / `stalemate` / `draw50` / `repetition` (`TERMINALS.md`,
+  t62 / R12): the engine game-end states; `checkmate` and `stalemate` carry
+  a `winner` (the trapping side); the two draws do not.
+
+The union lives in `worker/src/protocol.ts` (`RoomEndMsg.reason`) and is
+mirrored in `src/ui/protocol.ts`. v2 clients are rejected at join with
+`version_mismatch` because their `reason` union cannot represent the four
+new values.
 
 ---
 
@@ -187,8 +202,13 @@ room keeps its offer, malformed payload refused.
   accept-or-decline. (The brief listed a revoke; the simpler path was chosen
   and flagged.) A re-offer while an offer is open is a no-op, so the offerer
   is not stuck: the opponent must still answer or the game continues.
-- No client UI yet (Round 9).
-- No resign / clocks over the wire (separate future work; `roomEnd` currently
-  carries only `draw_agreement`).
-- The room does not yet enforce checkmate / stalemate / 50-move as terminal
-  states — only an agreed draw ends the room.
+- Client UI is live (R9, `6415790`): the "Offer draw" button in
+  `RemoteRoom.tsx` opens a per-seat draw-offer banner; acceptance is
+  gated on the offerer's own turn and the opponent's explicit accept.
+- Clocks (t56, R10) and the engine game-end terminals (t62, R12) live
+  on the same socket. `roomEnd` carries six reasons in v3:
+  `draw_agreement` | `time` | `checkmate` | `stalemate` | `draw50`
+  | `repetition`. This document only owns the first; the others are
+  in `CLOCK.md` §7 and `TERMINALS.md`.
+- Resign is **not** yet on the wire (Round 13 candidate; would
+  bump `PROTOCOL_VERSION` to 4 and add `roomEnd{reason:'resign', winner}`).
