@@ -50,3 +50,39 @@ describe('App', () => {
     expect(screen.getByTestId('move-list').textContent).toContain('no moves yet')
   })
 })
+
+describe('App theme switch (t64)', () => {
+  const pick = (name: RegExp) =>
+    fireEvent.click(screen.getByRole('radio', { name }))
+  const pinned = () => document.documentElement.getAttribute('data-theme')
+
+  it('pins data-theme, persists the choice, and clears back to system', () => {
+    localStorage.clear()
+    render(<App />)
+
+    // No stored choice: `system` leaves the attribute off for the OS to decide.
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+
+    pick(/^dark$/i)
+    expect(pinned()).toBe('dark')
+    expect(localStorage.getItem('hexchess:theme')).toBe('dark')
+
+    pick(/^light$/i)
+    expect(pinned()).toBe('light')
+
+    pick(/^system$/i)
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+    expect(localStorage.getItem('hexchess:theme')).toBe('system')
+  })
+
+  it('restores a stored theme on mount', () => {
+    localStorage.setItem('hexchess:theme', 'dark')
+    render(<App />)
+    expect(
+      screen
+        .getByRole('radio', { name: /^dark$/i })
+        .getAttribute('aria-checked'),
+    ).toBe('true')
+    expect(pinned()).toBe('dark')
+  })
+})
