@@ -103,6 +103,9 @@
 }
 
 body {
+  /* Containing block for the grain layer below, so it spans the document
+     rather than the viewport. */
+  position: relative;
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
@@ -124,10 +127,13 @@ body {
 }
 
 /* Risograph paper grain, light mode only — `--grain` is 0 in the dark block.
-   Multiply-blended so it darkens the ink instead of washing it out. */
+   Multiply-blended so it darkens the ink instead of washing it out. Absolute,
+   not fixed: a viewport-sized overlay stops at the fold, which leaves a band
+   with hard edges on a scrolling page and on any full-page capture (t64
+   defect 2). */
 body::before {
   content: '';
-  position: fixed;
+  position: absolute;
   inset: 0;
   pointer-events: none;
   opacity: var(--grain);

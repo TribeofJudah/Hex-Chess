@@ -35,12 +35,13 @@
     --cell-stroke: 1px;
     --cell-hover: #f4f1ea;
 
-    /* Outline-only pieces; black keeps a filled body so the two sides stay
-       apart without a hue to carry them. */
+    /* White pieces are outline-only; black pieces are a solid ink-white body
+       with the orange rim. Fill vs. no fill is what separates the two sides
+       in greyscale — a white outline and a #2a2a2a body did not (t64). */
     --piece-white: transparent;
     --piece-white-accent: #f4f1ea;
-    --piece-black: #2a2a2a;
-    --piece-black-accent: #f4f1ea;
+    --piece-black: #f4f1ea;
+    --piece-black-accent: #e8622c;
     --piece-stroke: 1.3;
   }
 }
@@ -55,8 +56,8 @@
 
   --piece-white: transparent;
   --piece-white-accent: #f4f1ea;
-  --piece-black: #2a2a2a;
-  --piece-black-accent: #f4f1ea;
+  --piece-black: #f4f1ea;
+  --piece-black-accent: #e8622c;
   --piece-stroke: 1.3;
 }
 
@@ -69,9 +70,6 @@
   border: 2px solid var(--ink);
   box-shadow: var(--shadow);
 }
-
-/* `.hxc-wrapper--scanlines` is still emitted by HexBoard so the existing
-   test and ControlBar prop keep their hook, but the CRT overlay is gone. */
 
 /* Display typeface utility for board captions. */
 .hxc-font {
@@ -138,9 +136,15 @@
   }
 }
 
+/* Keyboard focus rides the polygon's own stroke, so the ring is a hexagon —
+   an `outline` draws the element's bounding box instead (t64 defect 4).
+   Dash-dot keeps it apart from selected (solid), last move (dashed) and
+   check (dotted). */
 .hxc-cell[tabindex]:focus-visible {
-  outline: 2px solid var(--cobalt);
-  outline-offset: -2px;
+  outline: none;
+  stroke: var(--cobalt);
+  stroke-width: 3px;
+  stroke-dasharray: 8 3 2 3;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -202,10 +206,31 @@
 }
 
 /* Toggled-on reads as a cobalt plate: the one saturated fill in the UI. */
-.hxc-switch[aria-pressed='true'] {
+.hxc-switch[aria-pressed='true'],
+.hxc-switch[aria-checked='true'] {
   background: var(--cobalt);
   border-color: var(--cobalt);
   color: var(--paper);
+}
+
+/* Theme switch (t64). A three-way radio, not a toggle: `system` is the
+   absence of `data-theme` on <html>, so prefers-color-scheme decides. */
+.hxc-themeswitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hxc-themeswitch__label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+
+.hxc-themeswitch__group {
+  display: inline-flex;
 }
 
 /* Turn / status line. */
