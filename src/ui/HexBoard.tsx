@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { isValidCell } from '../board/axial'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from 'react'
+import { axialDistance, isValidCell } from '../board/axial'
 import { axialToNotation, notationToAxial } from '../board/notation'
 import {
   allCells,
@@ -12,6 +19,7 @@ import {
   type PieceColor,
   type PieceKind,
 } from './hexMath'
+import { flipDelta, prefersReducedMotion, staggerDelay } from './motion'
 import { PIECE_BOX, PieceLegend, PieceShape } from './pieces/Piece'
 import { PromotionBanner } from './PromotionBanner'
 import type { PendingPromotion } from './useGame'
@@ -88,6 +96,104 @@ function arrowNeighbor(notation: string, key: string): string | null {
   return isValidCell(next) ? axialToNotation(next) : null
 }
 
+/**
+ * What the board should play for one piece, this render (R16 / t66).
+ *
+ * The board keeps no piece identity across renders: a piece *is* the square it
+ * stands on, and what animates is the transition that put it there. `slide`
+ * and `promote` both travel from `from`; a piece with no entry here simply
+ * appears where it belongs, which is also what reduced motion gets.
+ */
+type PieceMotion =
+  | { kind: 'slide'; from: string }
+  | { kind: 'promote'; from: string; fromKind: PieceKind }
+
+interface Ghost {
+  notation: string
+  kind: PieceKind
+  color: PieceColor
+}
+
+interface MotionPlan {
+  motion: Record<string, PieceMotion>
+  /** Pieces that left the board: captures, including en passant. */
+  ghosts: Ghost[]
+}
+
+/** Nothing moving: the first render, and every turn that only changes highlight. */
+const NO_MOTION: MotionPlan = { motion: {}, ghosts: [] }
+
+/**
+ * A board's identity as a string, so "did anything actually change?" survives
+ * callers that hand down a fresh object literal every render (they all do).
+ * Sorted, because the record is rebuilt by spread on every move and key order
+ * is not stable; a spurious change would restart an animation mid-flight.
+ */
+function boardKey(pieces: BoardPieces): string {
+  return Object.entries(pieces)
+    .map(([notation, piece]) => `${notation}:${piece.color[0]}${piece.kind}`)
+    .sort()
+    .join(' ')
+}
+
+/**
+ * Diff the board from one render ago against this one and decide what moved.
+ *
+ * A pawn promotion arrives as a *different* piece from the one that set out, so
+ * it gets the two-glyph treatment: the pawn slides, then the chosen kind scales
+ * in over it. Nothing else in Gliński's can change a piece's kind on its own
+ * square, which is what makes this a safe read.
+ */
+function planMotion(
+  before: BoardPieces,
+  after: BoardPieces,
+  lastMove: [string, string] | undefined,
+): MotionPlan {
+  const from = lastMove?.[0]
+  const to = lastMove?.[1]
+  if (!from || !to) return NO_MOTION
+  const mover = after[to]
+  const wasFrom = before[from]
+  /* A forward move is the only board change these props can describe: the mover
+     stands on `to`, and `from` — which held a piece a moment ago — is empty
+     behind it. Undo and move-list browsing put the board back the other way
+     round (a stale `lastMove`, or the restored piece standing on `after[from]`
+     again), so those snap instead of replaying.
+     ponytail: undo of a move whose destination square happens to be an older
+     move's origin still reads as forward and jiggles for `--motion-base`. The
+     props cannot tell the two apart; passing the turn, or an undo flag, would. */
+  if (!mover || !wasFrom || after[from]) return NO_MOTION
+  const motion: Record<string, PieceMotion> = {
+    [to]:
+      wasFrom.color === mover.color &&
+      wasFrom.kind === 'pawn' &&
+      mover.kind !== 'pawn'
+        ? { kind: 'promote', from, fromKind: wasFrom.kind }
+        : { kind: 'slide', from },
+  }
+  /* Everything that no longer stands where it did left the board: the piece a
+     move captured, a pawn taken en passant, or the pawn a promotion replaced. */
+  const ghosts = Object.entries(before)
+    .filter(([notation, piece]) => {
+      if (notation === from) return false
+      const now = after[notation]
+      return !(now && now.kind === piece.kind && now.color === piece.color)
+    })
+    .map(([notation, piece]) => ({ notation, ...piece }))
+  return { motion, ghosts }
+}
+
+/** Style that starts a piece back on the square it came from (the FLIP half). */
+function slideStyle(from: string, size: number, to: { x: number; y: number }) {
+  const cell = fileRankToCell(from.slice(0, 1), Number(from.slice(1)))
+  const centre = cellCenter(cell, size)
+  const delta = flipDelta({ x: centre.x, y: -centre.y }, to)
+  return {
+    '--slide-x': `${delta.x}px`,
+    '--slide-y': `${delta.y}px`,
+  }
+}
+
 export function HexBoard({
   size = 30,
   pieces = {},
@@ -102,12 +208,51 @@ export function HexBoard({
 }: HexBoardProps) {
   const corners = useMemo(() => cellCorners(size), [size])
   const lastMoveSet = useMemo(() => new Set(lastMove ?? []), [lastMove])
-  const targetSet = useMemo(() => new Set(validTargets), [validTargets])
 
   // Roving focus: one cell is tabbable; arrows move it, Enter/Space act (T17).
   const rootRef = useRef<HTMLDivElement>(null)
   const [focused, setFocused] = useState('f6')
   const interactive = Boolean(onCellClick)
+
+  /* Motion (R16 / t66). What animates is the *transition* — the board as it was
+     one render ago against the board now — and no prop carries that. So the last
+     board is held in state and the plan adjusted during render, which is React's
+     own recipe for state derived from a prop (it re-runs the component on the
+     spot, before paint, instead of painting the piece at its destination and
+     jumping it back). Keying it to the board reference also keeps a plan stable
+     across the re-renders a running animation has to survive. */
+  const [seen, setSeen] = useState<{
+    key: string
+    board: BoardPieces | null
+    plan: MotionPlan
+  }>({ key: '', board: null, plan: NO_MOTION })
+  const key = boardKey(pieces)
+  if (seen.key !== key) {
+    setSeen({
+      key,
+      board: pieces,
+      plan:
+        seen.board && !prefersReducedMotion()
+          ? planMotion(seen.board, pieces, lastMove)
+          : NO_MOTION,
+    })
+  }
+  const { motion, ghosts } = seen.plan
+
+  // Legal-target fan: each dot waits in proportion to how far it is from the
+  // selected piece, so the whole set lands inside TARGET_STAGGER ms.
+  const targets = useMemo(() => {
+    const source = selectedCell ? notationToAxial(selectedCell) : null
+    const distances = validTargets.map((notation) => {
+      const cell = notationToAxial(notation)
+      return source && cell ? axialDistance(source, cell) : 0
+    })
+    const furthest = Math.max(0, ...distances)
+    return validTargets.map((notation, index) => ({
+      notation,
+      delay: staggerDelay(distances[index] ?? 0, furthest),
+    }))
+  }, [validTargets, selectedCell])
 
   useEffect(() => {
     if (!interactive) return
@@ -130,7 +275,13 @@ export function HexBoard({
   }
 
   return (
-    <div ref={rootRef} className="hxc-wrapper">
+    <div
+      ref={rootRef}
+      className="hxc-wrapper"
+      // The selected ring draws itself by offsetting its own dashed outline;
+      // the hexagon's perimeter is the dash length it animates to zero.
+      style={{ '--hex-perimeter': `${6 * size}px` } as CSSProperties}
+    >
       <svg
         className="hxc-svg"
         viewBox={viewBox(size)}
@@ -160,8 +311,43 @@ export function HexBoard({
               />
             )
           })}
-          {[...targetSet].map((notation) => (
-            <TargetMarker key={notation} notation={notation} size={size} />
+          {/* Last-move tints ride over the cells, so the three-colour shading
+              underneath survives and the tint can simply fade in (t66). */}
+          {[...lastMoveSet].map((notation) => {
+            const cell = fileRankToCell(
+              notation.slice(0, 1),
+              Number(notation.slice(1)),
+            )
+            const center = cellCenter(cell, size)
+            return (
+              <polygon
+                key={`tint-${notation}`}
+                className="hxc-cell-tint"
+                points={cellPoints(center.x, -center.y, corners)}
+                fill="var(--orange)"
+                aria-hidden="true"
+              />
+            )
+          })}
+          {targets.map(({ notation, delay }) => (
+            <TargetMarker
+              key={notation}
+              notation={notation}
+              size={size}
+              delay={delay}
+            />
+          ))}
+          {/* Captured pieces go under the arriving one, so paint order puts the
+              ghost beneath the piece that takes its square. */}
+          {ghosts.map((ghost) => (
+            <PlacedPiece
+              key={`ghost-${ghost.notation}`}
+              notation={ghost.notation}
+              kind={ghost.kind}
+              color={ghost.color}
+              size={size}
+              ghost
+            />
           ))}
           {Object.entries(pieces).map(([notation, piece]) => (
             <PlacedPiece
@@ -170,6 +356,7 @@ export function HexBoard({
               kind={piece.kind}
               color={piece.color}
               size={size}
+              motion={motion[notation]}
             />
           ))}
         </g>
@@ -229,7 +416,15 @@ function CellPolygon({
   )
 }
 
-function TargetMarker({ notation, size }: { notation: string; size: number }) {
+function TargetMarker({
+  notation,
+  size,
+  delay,
+}: {
+  notation: string
+  size: number
+  delay: number
+}) {
   const cell = fileRankToCell(notation.slice(0, 1), Number(notation.slice(1)))
   const center = cellCenter(cell, size)
   return (
@@ -238,9 +433,10 @@ function TargetMarker({ notation, size }: { notation: string; size: number }) {
       cx={center.x}
       cy={-center.y}
       r={size * 0.3}
-      fill="var(--cell-hover)"
-      opacity={0.55}
+      fill="var(--target-dot)"
       pointerEvents="none"
+      className="hxc-target"
+      style={delay ? { animationDelay: `${delay}ms` } : undefined}
     />
   )
 }
@@ -250,11 +446,15 @@ function PlacedPiece({
   kind,
   color,
   size,
+  motion,
+  ghost = false,
 }: {
   notation: string
   kind: PieceKind
   color: PieceColor
   size: number
+  motion?: PieceMotion | undefined
+  ghost?: boolean
 }) {
   const cell = fileRankToCell(notation.slice(0, 1), Number(notation.slice(1)))
   const center = cellCenter(cell, size)
@@ -266,18 +466,50 @@ function PlacedPiece({
   const height = scale * PIECE_BOX.h
   const width = scale * PIECE_BOX.w
   const inkMid = ((INK_TOP + INK_BOTTOM) / 2) * scale
+  const drawn = { x: center.x, y: -center.y }
+  // A piece that moved is wrapped so the slide and the capture shrink turn about
+  // its own centre rather than the board's.
+  const moving = motion ? slideStyle(motion.from, size, drawn) : null
   return (
-    <svg
-      x={center.x - width / 2}
-      y={-center.y - inkMid}
-      width={width}
-      height={height}
-      viewBox={`0 0 ${PIECE_BOX.w} ${PIECE_BOX.h}`}
-      role="img"
-      aria-label={`${color} ${kind} on ${notation}`}
+    <g
+      className={
+        ghost
+          ? 'hxc-piece-ghost'
+          : moving
+            ? 'hxc-piece-move'
+            : undefined
+      }
+      style={moving ? (moving as CSSProperties) : undefined}
+      aria-hidden={ghost ? true : undefined}
+      /* The cell polygon stays the hit target; theme.css says the same, and the
+         attribute is what a test can see (jsdom does not hit-test) — t66. */
+      pointerEvents="none"
     >
-      <PieceShape kind={kind} color={color} />
-    </svg>
+      <svg
+        className="hxc-piece-box"
+        x={center.x - width / 2}
+        y={-center.y - inkMid}
+        width={width}
+        height={height}
+        viewBox={`0 0 ${PIECE_BOX.w} ${PIECE_BOX.h}`}
+        role="img"
+        aria-label={`${color} ${kind} on ${notation}`}
+      >
+        {motion?.kind === 'promote' ? (
+          <>
+            {/* The pawn that travelled, then the piece it became. */}
+            <g className="hxc-glyph--out">
+              <PieceShape kind={motion.fromKind} color={color} />
+            </g>
+            <g className="hxc-glyph--in">
+              <PieceShape kind={kind} color={color} />
+            </g>
+          </>
+        ) : (
+          <PieceShape kind={kind} color={color} />
+        )}
+      </svg>
+    </g>
   )
 }
 

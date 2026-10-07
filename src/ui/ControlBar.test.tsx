@@ -109,4 +109,19 @@ describe('ControlBar', () => {
     expect(screen.queryByRole('button', { name: 'Load PGN' })).toBeNull()
     expect(screen.queryByTestId('pgn-file-input')).toBeNull()
   })
+
+  it('cross-fades the recolour through a View Transition (t66)', () => {
+    const start = vi.fn<(callback: () => void) => void>((callback) => callback())
+    Reflect.set(document, 'startViewTransition', start)
+    try {
+      const onThemeChange = vi.fn()
+      render(<ControlBar theme="dark" onThemeChange={onThemeChange} />)
+      fireEvent.click(screen.getByRole('radio', { name: /^light$/i }))
+      // The theme lands inside the transition's callback, not beside it.
+      expect(start).toHaveBeenCalledTimes(1)
+      expect(onThemeChange).toHaveBeenCalledWith('light')
+    } finally {
+      Reflect.deleteProperty(document, 'startViewTransition')
+    }
+  })
 })
