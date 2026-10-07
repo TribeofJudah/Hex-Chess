@@ -518,3 +518,92 @@ test fixture flipping `winner: 'black'` → `'white'`. TERMINALS.md
   local-only branch.
 - Dispatcher merged via fast-forward (no conflict — the fences were
   disjoint files plus the protocol-bump constant in two places).
+
+## Round 13 pre-flight — t65 protocol-doc harmonization (2026-10-06)
+
+Date: 2026-10-06 · Branch: `dev` · Base: `92ad02d` (R12 + TASKLIST) ·
+Source: dispatcher dpp1 (this session) · Single dispatcher commit
+(no worker fences; docs-only).
+
+### What closed
+
+The R12 dispatcher report flagged the protocol-doc amendment pass as
+the "orphan C-line" (t65) from Round 12. Code shipped at
+`PROTOCOL_VERSION = 3` with six `roomEnd` reasons in commits `b56f131`
++ `2af1863` + `a18fc69`, but the four protocol docs were left at
+`v1` / `v2` stubs. This round brings them into sync with no code
+changes.
+
+**`claudedocs/ROOM_PROTO.md`**
+- Header: `draft v1` → `draft v3`, with the R12 reason-union widening
+  and the v2-client rejection at join spelled out.
+- §3.2: adds `DrawOfferMsg`, `RoomEndMsg` (6 reasons + optional
+  `winner`), and `ClockMsg` to the shape block.
+- §3 control-frames table: drops the `(v2)` annotations on
+  `welcome` / `clock` / `roomEnd`; the `roomEnd` row now cross-links
+  to `TERMINALS.md` and lists "six values".
+- §8.3 "non-goals for v1" → "non-goals for v3": drops the
+  "checkmate / stalemate / 50-move not yet enforced" claim; the
+  list now says those are live, and `resign` is the single new
+  wire-level item flagged for v4.
+- §9 "Terminal state": the "two terminals in v1" sentence is replaced
+  with a six-row list mapping each reason to its source doc + SHAs.
+
+**`claudedocs/DRAW_PROTO.md`**
+- Header: `draft v1` → `draft v2`, notes the R9 client UI landed.
+- §2 (offer-clear text): the "draw_agreement is the only reason in v1"
+  sentence is replaced with the full six-reason union and cross-links
+  to `CLOCK.md` and `TERMINALS.md`.
+- §8 "non-goals": the three stale non-goals ("no client UI yet",
+  "no resign / clocks", "does not yet enforce checkmate / stalemate /
+  50-move") are replaced with what is now live + the lone remaining
+  gap (`resign`).
+
+**`claudedocs/CLOCK.md`**
+- Header: `draft v1` → `draft v2`, notes the R11 `<Clock>` UI landed
+  and the engine-game-end terminals now share the same wire.
+- §6 "Protocol bump (1 → 2)" → "Protocol bumps (1 → 2 in t56, 2 → 3 in
+  t62)": the section is widened to capture both bumps with SHAs and
+  cross-link to `TERMINALS.md`.
+
+**`claudedocs/TERMINALS.md`**
+- Header date: `2026-10-05` + `round12(terminals-worker)` →
+  `2026-10-06` + `dev`; status: `draft, client UI lands in Round 13
+  and may amend the stalemate-winner call` → `landed t62`, with the
+  actual SHAs (`b56f131` worker, `2af1863` stalefix, `4139737` +
+  `a18fc69` client mirror).
+- §5 "out of the worker fence" bullet: "client side land in Round 13"
+  → "landed in R12 in commit `a18fc69` (cherry-picked on top of
+  dispatcher stalemate-fix `2af1863`)".
+
+### Final state on dev
+
+`d1e156b` (HEAD) ← `92ad02d` (R12 TASKLIST) ← `a18fc69` (R12 client) ←
+`2af1863` (R12 stalefix) ← `b56f131` (R12 worker) ← `fde0769` (R11
+TASKLIST) ← …
+
+- All R12 + t65 commits pushed to `origin/dev`.
+- All gates green: root 244/244, worker 58/58, `tsc -b` 0, lint 0.
+- PR #3 v0.1.3 refreshed (add-commit `d1e156b`); 6/6 CI checks green.
+- Stale branches deleted on origin: `task/1-scaffold`,
+  `task/3-board-model`, `task/6-board-ui`, `task/7-retro-theme`.
+  Remaining: `main`, `dev`, `round12(terminals-worker)`,
+  `round12(terminals-client)`.
+
+### Owner review
+
+PR #3 is now 21 commits and all gates green. Ready for owner
+review per `RULES.md §5`.
+
+### Round 13 candidates (not dispatched)
+
+Logged but unblocked-by-owner. Priority order:
+
+| Pri | Task | Notes |
+| --- | ---- | ----- |
+| 1 | **PGN import** | Inverse of R10/R12 export. New `src/ui/pgnImport.ts`, tests, "Load PGN" button in `RemoteRoom`. Single-fence. |
+| 2 | **`resign` over the wire** | Adds `roomEnd{reason:'resign', winner}`. **Requires PROTOCOL bump 3 → 4** — note this in the brief. |
+| 3 | **DO test pool** | `@cloudflare/vitest-pool-workers` so `terminals.test.ts` exercises the DO isolation boundary. |
+| 4 | **`prefers-reduced-motion` respect on clock pulse** | CLOCK.md §10 polish item. ~10 lines of CSS. |
+| 5 | **Reconnect UX polish** | Status-bar visibility + backoff messaging. |
+| 6 | **Stalemate convention review (if owner flags)** | §11 to CLOCK.md or SPEC amendment if the 3/4-to-trapping-side reading gets owner pushback. |
