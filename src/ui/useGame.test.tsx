@@ -1,7 +1,11 @@
-import { act, renderHook } from '@testing-library/react'
+import { act, fireEvent, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { makeSocketFactory, welcomeMsg } from '../test/fakeSocket'
+import { glinskiRules } from '../rules/adapter'
 import { allCells, cellToFileRank } from './hexMath'
+import { PROTOCOL_VERSION } from './protocol'
 import { initialPieces, lenientRules, useGame, type GameRules } from './useGame'
+import { useRemoteGame } from './useRemoteGame'
 
 const NOTATIONS = allCells().map((cell) => {
   const { file, rank } = cellToFileRank(cell)
@@ -9,7 +13,7 @@ const NOTATIONS = allCells().map((cell) => {
 })
 
 function cellOf(
-  hook: ReturnType<typeof renderHook<ReturnType<typeof useGame>, unknown>>,
+  hook: { result: { current: Game } },
   color: 'white' | 'black',
 ): string {
   const entries = Object.entries(hook.result.current.position)
@@ -74,7 +78,12 @@ describe('useGame', () => {
     expect(result.current.position.f6).toEqual({ kind: 'king', color: 'white' })
     expect(result.current.position.g1).toBeUndefined()
     expect(result.current.turn).toBe('black')
-    expect(result.current.moves[0]).toEqual({ san: 'Kg1 f6', color: 'white' })
+    expect(result.current.moves[0]).toEqual({
+      san: 'Kg1 f6',
+      color: 'white',
+      from: 'g1',
+      to: 'f6',
+    })
     expect(result.current.lastMove).toEqual(['g1', 'f6'])
     expect(result.current.canUndo).toBe(true)
   })
@@ -83,9 +92,9 @@ describe('useGame', () => {
     const { result } = renderHook(() => useGame())
     move({ result }, 'b1', 'b2')
     move({ result }, 'b7', 'b6')
-    expect(result.current.moves[0].san).toBe('b1 b2')
-    expect(result.current.moves[1].san).toBe('b7 b6')
-    expect(result.current.moves[1].color).toBe('black')
+    expect(result.current.moves[0]!.san).toBe('b1 b2')
+    expect(result.current.moves[1]!.san).toBe('b7 b6')
+    expect(result.current.moves[1]!.color).toBe('black')
     expect(result.current.turn).toBe('white')
   })
 
@@ -212,10 +221,10 @@ describe('useGame vs AI', () => {
       act(() => vi.runAllTimers())
       const { moves, turn, lastMove, aiThinking } = hook.result.current
       expect(moves).toHaveLength(2)
-      expect(moves[1].color).toBe('black')
+      expect(moves[1]!.color).toBe('black')
       expect(turn).toBe('white')
       expect(aiThinking).toBe(false)
-      expect(hook.result.current.position[lastMove![1]].color).toBe('black')
+      expect(hook.result.current.position[lastMove![1]]!.color).toBe('black')
 
       act(() => hook.result.current.undo())
       expect(hook.result.current.moves).toEqual([])
@@ -314,4 +323,218 @@ describe('useGame move-list jump (T14)', () => {
     act(() => result.current.clickCell('a1'))
     expect(result.current.viewPly).toBe(2)
   })
+})
+
+describe('useGame human promotion (t45)', () => {
+  // White pawn on e9, one push from e10 (file e's top cell, in the engine's
+  // promotion zone); a lone white king at f1 keeps the position legal.
+  const PROMO_FEN = '1/3/1P3/7/9/11/11/11/11/11/5K5 w - 0 1'
+
+  it('parks the move and raises pendingPromotion on a pawn-to-last-rank click', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    expect(result.current.pendingPromotion).toEqual({
+      from: 'e9',
+      to: 'e10',
+      options: ['queen', 'rook', 'bishop', 'knight'],
+    })
+    // Nothing moved yet; highlights stay up like a normal two-click.
+    expect(result.current.position.e9).toEqual({ kind: 'pawn', color: 'white' })
+    expect(result.current.moves).toEqual([])
+    expect(result.current.turn).toBe('white')
+    expect(result.current.selected).toBe('e9')
+    expect(result.current.validTargets).toContain('e10')
+  })
+
+  it('completes the parked move with the chosen kind', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    act(() => result.current.choosePromotion('rook'))
+    expect(result.current.pendingPromotion).toBeNull()
+    expect(result.current.position.e9).toBeUndefined()
+    expect(result.current.position.e10).toEqual({
+      kind: 'rook',
+      color: 'white',
+    })
+    expect(result.current.moves[0]).toEqual({
+      san: 'e9 e10=R',
+      color: 'white',
+      from: 'e9',
+      to: 'e10',
+      promotion: 'rook',
+    })
+    expect(result.current.turn).toBe('black')
+  })
+
+  it('cancels with Esc and lets normal play resume', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    expect(result.current.pendingPromotion).not.toBeNull()
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Escape' })
+    })
+    expect(result.current.pendingPromotion).toBeNull()
+    expect(result.current.selected).toBeNull()
+    expect(result.current.validTargets).toEqual([])
+    expect(result.current.position.e9).toEqual({ kind: 'pawn', color: 'white' })
+    expect(result.current.position.e10).toBeUndefined()
+    expect(result.current.moves).toEqual([])
+    // Play resumes normally after the cancel.
+    act(() => result.current.clickCell('f1'))
+    act(() => result.current.clickCell('g2'))
+    expect(result.current.moves[0]!.san).toBe('Kf1 g2')
+  })
+
+  it('never parks AI-style moves played with their promotion kind', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() => result.current.loadFen(PROMO_FEN))
+    // The AI and remote peers apply moves via the 'move' action with the
+    // promotion kind riding along — no banner for that path (t45).
+    act(() => result.current.applyMove('e9', 'e10', 'queen'))
+    expect(result.current.pendingPromotion).toBeNull()
+    expect(result.current.position.e10).toEqual({
+      kind: 'queen',
+      color: 'white',
+    })
+    expect(result.current.moves[0]?.promotion).toBe('queen')
+  })
+
+  it('streams the chosen kind to the room as the wire promotion', () => {
+    const factory = makeSocketFactory()
+    const { result } = renderHook(() =>
+      useRemoteGame('ROOM', { connect: factory.connect }),
+    )
+    act(() => factory.current().open())
+    act(() => factory.current().recv(welcomeMsg()))
+    // A solo welcome leaves the room 'waiting' — which is sendable
+    // (SENDABLE = ['waiting', 'playing']) — so the move will still stream.
+    expect(result.current.status).toBe('waiting')
+    act(() => result.current.loadFen(PROMO_FEN))
+    act(() => result.current.clickCell('e9'))
+    act(() => result.current.clickCell('e10'))
+    act(() => result.current.choosePromotion('queen'))
+    expect(factory.current().last()).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'move',
+      from: 'e9',
+      to: 'e10',
+      promotion: 'queen',
+      revision: 0,
+    })
+  })
+})
+
+describe('useGame draw offer (t49)', () => {
+  it('opens the offer for the side to move; a re-offer is a no-op', () => {
+    const { result } = renderHook(() => useGame())
+    expect(result.current.drawOffer).toBeNull()
+    act(() => result.current.chooseOffer('offer'))
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'white' })
+    // Idempotent re-offer (t48): nothing stacks, nothing else changes.
+    act(() => result.current.chooseOffer('offer'))
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'white' })
+    expect(result.current.moves).toEqual([])
+    expect(result.current.turn).toBe('white')
+    expect(result.current.gameOver).toBeNull()
+  })
+
+  it('lets the opponent decline and clear the offer', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.chooseOffer('offer'))
+    act(() => result.current.chooseOffer('decline'))
+    expect(result.current.drawOffer).toBeNull()
+    expect(result.current.gameOver).toBeNull()
+    expect(result.current.moves).toEqual([])
+  })
+
+  it('lets the opponent accept and end the game by agreement', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.chooseOffer('offer'))
+    act(() => result.current.chooseOffer('accept'))
+    expect(result.current.gameOver).toEqual({ kind: 'agreement' })
+    expect(result.current.drawOffer).toBeNull()
+    // Nothing opens after the game has ended.
+    act(() => result.current.chooseOffer('offer'))
+    expect(result.current.drawOffer).toBeNull()
+  })
+
+  it('only answers an offer that is open and answerable', () => {
+    const { result } = renderHook(() => useGame())
+    // Accept/decline with no offer open are no-ops (t48 no_open_offer).
+    act(() => result.current.chooseOffer('accept'))
+    expect(result.current.gameOver).toBeNull()
+    // The offerer's own 'awaiting' view (mirrored from the wire) is theirs
+    // to wait out — not to answer.
+    act(() => result.current.recvDrawOffer({ state: 'awaiting', by: 'white' }))
+    act(() => result.current.chooseOffer('accept'))
+    expect(result.current.gameOver).toBeNull()
+    expect(result.current.drawOffer).toEqual({ state: 'awaiting', by: 'white' })
+  })
+
+  it('the engine accepts an open human draw offer (AI path, t49)', () => {
+    vi.useFakeTimers()
+    try {
+      const hook = renderHook(() => useGame(glinskiRules))
+      act(() => hook.result.current.toggleAi())
+      act(() => hook.result.current.chooseOffer('offer'))
+      expect(hook.result.current.drawOffer).toEqual({
+        state: 'offered',
+        by: 'white',
+      })
+      act(() => vi.runAllTimers())
+      expect(hook.result.current.gameOver).toEqual({ kind: 'agreement' })
+      expect(hook.result.current.drawOffer).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('mirrors the drawOffer and roomEnd frames from the room (t48/t49)', () => {
+    const { result } = renderHook(() => useGame())
+    act(() => result.current.recvDrawOffer({ state: 'offered', by: 'black' }))
+    expect(result.current.drawOffer).toEqual({ state: 'offered', by: 'black' })
+    // The idle frame clears the offer.
+    act(() => result.current.recvDrawOffer(null))
+    expect(result.current.drawOffer).toBeNull()
+    act(() => result.current.recvDrawOffer({ state: 'awaiting', by: 'white' }))
+    act(() => result.current.recvRoomEnd('draw_agreement'))
+    expect(result.current.gameOver).toEqual({ kind: 'agreement' })
+    expect(result.current.drawOffer).toBeNull()
+    expect(result.current.roomEndReason).toBe('draw_agreement')
+  })
+
+  // R12: the reducer's wire→kind mapping covers every server-emitted
+  // reason. Each test pins one (reason, expected gameOver) pair, so a
+  // future wire-shape edit that loses a branch surfaces immediately.
+  it.each([
+    ['checkmate', 'white', { kind: 'checkmate', winner: 'white' }] as const,
+    ['checkmate', 'black', { kind: 'checkmate', winner: 'black' }] as const,
+    ['stalemate', 'white', { kind: 'stalemate', winner: 'white' }] as const,
+    ['stalemate', 'black', { kind: 'stalemate', winner: 'black' }] as const,
+    ['draw50', undefined, { kind: 'fifty-move' }] as const,
+    ['repetition', undefined, { kind: 'repetition' }] as const,
+    ['time', 'white', { kind: 'resign', winner: 'white' }] as const,
+  ])(
+    'recvRoomEnd(%s, %s) maps to %p + carries the reason on roomEndReason',
+    (reason, winner, expected) => {
+      const { result } = renderHook(() => useGame())
+      act(() =>
+        result.current.recvRoomEnd(
+          reason as Parameters<typeof result.current.recvRoomEnd>[0],
+          // The `timeLoser` would flip the winner, but the reducer's
+          // signature takes the winner directly; tests pass through the
+          // winner the worker would have emitted.
+          winner as 'white' | 'black' | undefined,
+        ),
+      )
+      expect(result.current.gameOver).toEqual(expected)
+      expect(result.current.roomEndReason).toBe(reason)
+    },
+  )
 })

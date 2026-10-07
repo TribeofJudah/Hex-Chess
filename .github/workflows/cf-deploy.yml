@@ -1,0 +1,39 @@
+name: Deploy Worker to Cloudflare
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-worker-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-worker:
+    runs-on: ubuntu-latest
+    # Manual `npx wrangler deploy` so the wrangler version comes from the
+    # worker lockfile (deterministic) instead of the action's default.
+    # Requires the CLOUDFLARE_API_TOKEN repo secret — see claudedocs/CF_DEPLOY.md.
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install worker dependencies
+        run: npm install
+
+      - name: Deploy Worker
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

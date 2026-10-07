@@ -50,7 +50,7 @@ describe('ControlBar', () => {
     const disabled = screen
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('disabled'))
-    expect(disabled).toHaveLength(6) // New game, Undo, AI, Resign, Draw, Export PGN
+    expect(disabled).toHaveLength(7) // New game, Undo, AI, Resign, Offer draw, Export PGN, Play online
   })
 
   it('fires the resign and draw handlers (T16)', () => {
@@ -65,7 +65,7 @@ describe('ControlBar', () => {
       />,
     )
     fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Draw' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Offer draw' }))
     expect(onResign).toHaveBeenCalledTimes(1)
     expect(onOfferDraw).toHaveBeenCalledTimes(1)
   })

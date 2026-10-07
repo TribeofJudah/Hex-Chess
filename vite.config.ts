@@ -15,6 +15,6 @@ export default defineConfig({
     css: false,
     include: ['src/**/*.test.{ts,tsx}'],
     pool: 'forks',
-    maxForks: 1,
+    maxWorkers: 1,
   },
 })

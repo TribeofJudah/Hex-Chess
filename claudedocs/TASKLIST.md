@@ -171,3 +171,500 @@ All four post-MVP items in the brief are now landed:
 - PGN export for Gliński — done (t29 wiring + pgn.ts in 81fc367)
 
 Phase 3 is feature-complete pending merge of PR #2.
+
+## Round 3 — v0.1.1 SHIPPED 2026-10-05
+
+PR #2 merged at 2026-10-05T10:30:39Z (merge commit `60f61f0`). Dispatcher action chain:
+- Merged via `gh pr merge 2 --merge` (owner signal: "proceed, tasks have been completed")
+- CI on `main` run 37297039027 — success
+- Pages deploy run 37297039160 — success → live at https://tribeofjudah.github.io/Hex-Chess/
+- Tagged `v0.1.1` and pushed
+- Created GitHub Release at https://github.com/TribeofJudah/Hex-Chess/releases/tag/v0.1.1
+- Closed stale luvus tasks: t17, t18, t21, t22 (deleted per owner signal); t29 closed as done (closed incidentally in 81fc367)
+
+### Branch sync after merge
+- `origin/main` now at `60f61f0` (Merge PR #2), 9 commits ahead of the v0.1.0 baseline (`99e1c90`).
+- `origin/dev` was fast-forwarded to the same SHA via the merge.
+- Local checkout now on `main`.
+
+### Open
+- Phase 4 — only one Phase 3 item remained (remote play); it's complete. Phase 4 is undefined: the TASKLIST post-Round-3 backlog lists "remote play (account-less rooms), integration with a chess UI library, position-editor FEN round-trip smoke test in the deploy pipeline." Remote play needs a backend-of-choice decision; the other two are scoped and dispatchable. Awaiting owner direction.
+
+## Round 7 — t44 DO persistence + t45 client-side human promotion — 2026-10-05
+
+Dispatcher: dpp1 (claude, pane 38). Workers: spp2 (pane 49, deepseek-v4-flash:cloud)
++ dvv (pane 50, glm-5.3-flash:cloud), parallel on the same checkout with disjoint
+fences.
+
+Two commits landed on `dev`:
+
+| sha | scope |
+| --- | ----- |
+| `9f782fd` | round7(do-persist): RoomDO hydrates from DO storage and snapshots after every move (t44) |
+| `651ffca` | round7(client-promotion): human pawn-to-last-rank surfaces a Q/R/B/N banner (t45) |
+
+`dev` is now 6 commits ahead of `origin/dev` (Rounds 4, 5, 6, 7). Standing gates:
+root tests 189/189, worker tests 34/34, root tsc -b 0, lint 0, build ok, FEN smoke 8/8.
+
+### Fences and out-of-fence (dispatcher-approved)
+- `spp2 / t44`: `worker/**` only. No out-of-fence writes.
+- `dvv / t45`: `src/ui/**` + `claudedocs/PROMOTION_UI.md`. Out-of-fence: `src/App.tsx`
+  (+2, mounting `PromotionBanner`) and `src/ui/RemoteRoom.tsx` (+2, threading
+  `promotion` through `useRemoteGame.sendMove`'s existing third arg). Trivial wiring.
+
+### Decisions worth flagging for review (full report in `claudedocs/ROUND7_REPORT.md`)
+- **t44 — seats are NOT persisted.** `RoomCore.snapshot()` captures
+  `{code, fen, moves, revision}` only; seats are live-connection state and are
+  re-derived from arrival order on respawn. A reconnecting client reclaims
+  its seat only while the original DO instance is alive; after eviction,
+  colours are re-issued in join order. Persisting seats would let a
+  never-returning client hold a colour forever — flagged in `ROOM_PROTO.md`
+  §4.7. ~3 lines + a guard test to add if seats should persist.
+- **t44 — snapshot is fire-on-move, not bucketed/debounced/timed.** `revision`
+  advances only on an accepted move, so the write set is the same in every
+  flavour. `void storage.put(...)` on the write path — DO storage coalesces
+  and flushes before eviction.
+- **t45 — engine-authoritative promotion detection.** `pendingPromotion` is
+  set when `movesFrom()` emits a promotion candidate; the UI does NOT
+  duplicate the last-rank rule. Works for both colours, never parks
+  engine-illegal arrivals.
+- **t45 — AI moves do NOT prompt the banner.** AI moves already carry their
+  own `promotion` kind from the rules engine and pass through silently.
+  Only the human path parks for the banner.
+
+### Deferred (logged in `ROUND7_REPORT.md`)
+- DO wrapper is not driven in a worker tier test pool. `@cloudflare/vitest-pool-workers`
+  is the missing dep. Snapshot path is proven at the `RoomCore` level +
+  wrangler dry-run bundle. Non-blocking.
+- Reconnect UX polish (toast / spinner) is `useRemoteGame`'s concern, not
+  the DO. Out of scope.
+
+### Stale-entry disposition
+- t44, t45: `done`.
+- Previous luvus stale tasks unchanged. Owner-approval deletion pending.
+
+### Next up (dpp1)
+- Open `dev → main` PR for **v0.1.3** (this round + Round 6 server-validate work,
+  previously unmerged). Pages deploys on merge. **Requires owner approval per RULES.md §5.**
+- Round 8 candidate dispatch: see `ROUND7_REPORT.md` "Next up" section for the four
+  options and their fences. Recommended: t46 (CI deploy pipeline, small config-only)
+  + t49 (dispatcher-only doc follow-up). Both fit the disjoint-fence pattern
+  and add measurable value.
+
+## Round 10 — t56 server clock + t55 PGN multiplayer export — 2026-10-05
+
+Dispatcher: dpp1 (claude, pane 38). Workers: spp2 (pane 49,
+`deepseek-v4-flash:cloud`) + dvv (pane 50, `glm-5.3-flash:cloud`),
+parallel on the same checkout with disjoint fences.
+
+Two commits landed on `dev`:
+
+| sha | scope |
+| --- | ----- |
+| `81bb4ec` | round10(server-clock): 1Hz move clock with persistence + PROTOCOL bump to 2 (t56) |
+| `c8930f3` | round10(draw-pgn-export): roomEnd reason + loser-named comment for multiplayer terminals (t55) |
+
+`dev` is now 8 commits ahead of `origin/dev` (Rounds 4, 5, 6, 7, 8, 9, 10).
+Standing gates: root tests 215/215, worker tests 52/52, tsc -b 0, lint 0,
+build ok, FEN smoke 8/8, wrangler dry-run 32.97 KiB gzip 9.27 KiB.
+
+### Fences
+
+- `spp2 / t56`: `worker/**` only + `claudedocs/CLOCK.md`. The v2 mirror in
+  `src/ui/protocol.ts` was sequenced into the **follow-up commit**
+  (`c8930f3`) — spp2 had no out-of-band writes.
+- `dvv / t55`: `src/ui/{pgn,pgn.test,RemoteRoom}.{ts,tsx}` +
+  `claudedocs/PGN_DRAW.md`. dvv's `useRemoteGame.ts` edits were subsumed
+  by spp2's protocol-bump mirror (both wrote the same wire field).
+
+### Mid-round merge (important)
+
+Both workers wrote the same wire field (`ClockMsg` in `src/ui/protocol.ts`,
+`roomEndReason` in `useGame.ts`). Resolution: **additive**. spp2's wire
+types + reducer field won (committed in `81bb4ec`'s `useGame.ts` and
+`useGame.test.tsx`). dvv's `pgn.ts` accepts the merged vocabulary
+(`'time'` not `'timeout'`; explicit `timeLoser` 4th arg) and threads
+through the reducer field. The `pgn.test.ts` suites were merged into
+one file in `c8930f3` (verified by dispatcher reading the file before
+commit). Full report in `claudedocs/ROUND10_REPORT.md`.
+
+### Decisions worth flagging (full report in `claudedocs/ROUND10_REPORT.md`)
+
+- **PROTOCOL_VERSION bumped 1 → 2**. v1 clients rejected at join with
+  `version_mismatch`. Both `worker/src/protocol.ts` and
+  `src/ui/protocol.ts` carry the same `PROTOCOL_VERSION = 2` constant.
+- **Clock is server-authoritative.** `ClockState.since` is the epoch the
+  running seat started burning; real remaining = `stored - (now - since)`.
+  Nothing is written per tick (eviction accuracy is free).
+- **Wire `roomEnd.reason = 'time'`** + `winner` (winner = who WON; the
+  PGN inverts to name the LOSER at the call site).
+- **Per-room time control is not implemented.** Constants in
+  `worker/src/clock.ts` (`INITIAL_MS` / `INCREMENT_MS`); would need a
+  field on `join` if added.
+- **PGN `*[...]*` is house-convention**, not strict PGN. Strict PGN
+  uses `{...}` braces. Documented in `claudedocs/PGN_DRAW.md` §3.
+
+### Deferred (logged in `claudedocs/CLOCK.md` §9)
+
+- **No client UI yet.** `src/ui/protocol.ts` is v2; nothing renders the
+  clock. **Round 11 candidate.**
+- No pause / no abandonment timeout.
+- No `resign` (still absent from the protocol).
+- Checkmate / stalemate / 50-move still not enforced server-side.
+- DO test pool (`@cloudflare/vitest-pool-workers`) still missing.
+
+### Stale-entry disposition
+
+- t56, t57: `review` (post-`task done` luvus flow; `task merge` →
+  `review`; `task update --status done` closes them).
+- t47 (T-cf-deploy-pipeline) is queued but the code already landed in
+  `cf7f328` (Round 8). To be flipped to done in this turn's follow-up.
+- t53 remains queued (placeholder title, no work — empty stub).
+
+### Next up (dpp1)
+
+- **Round 11 candidate (single-fence): Clock UI.** Mirror `ClockMsg`
+  frames into a `Clock` component in `RemoteRoom` + `App.tsx`;
+  `theme.css` styling; tests for the hook carrying the field through.
+  `src/ui/**` only — no worker change. The clock is wired; it just
+  doesn't render.
+- **Round 12 candidates**: server-side checkmate / stalemate / 50-move
+  enforcement (still listed as non-goal in `ROOM_PROTO.md` §8.3); PGN
+  import (round-trip for replay/share); reconnect UX polish; resign
+  over the wire (currently absent from the protocol).
+- **v0.1.3 PR**: opened previously, awaits owner approval per
+  `RULES.md` §5. Will need description refresh to include R10
+  (server clock + PGN multiplayer export).
+- **dvv pane**: still in `done` state; close at next dispatch slot.
+
+## Round 11 — Clock UI (single-fence, src/ui only) — 2026-10-05
+
+Dispatcher: dpp1 (claude, pane 38, this turn; no worker pane
+available — agent pool was empty after R10). Dispatcher did the work
+itself. No worker report file.
+
+One commit landed on `dev`:
+
+| sha | scope |
+| --- | ----- |
+| `daaf6e8` | round11(clock-ui): render the server-authoritative clock in RemoteRoom |
+
+`dev` is now 9 commits ahead of `main` (Rounds 4–11).
+Standing gates: root tests **226/226**, worker **52/52**, `tsc -b` 0,
+lint 0, build ok, FEN smoke 8/8, wrangler dry-run 32.97 KiB.
+
+### Fence
+
+`src/ui/**` only + `claudedocs/CLOCK.md` (§10 appended; §9 non-goal
+flipped). No worker change. No R10 protocol edit (PROTOCOL_VERSION 2
+was already correct from R10 follow-up `c8930f3`).
+
+### Why this round
+
+`CLOCK.md` §9 listed "No client UI yet" as a non-goal at the end of
+R10 — the wire was firing per-tick `clock` frames but the client
+silently dropped them: there was **no `case 'clock'`** in
+`useRemoteGame`'s message switch, and `welcome.clock` was unused too.
+R11 closes that gap.
+
+### What landed
+
+- **`src/ui/Clock.tsx` (NEW)** — pure renderer. Two seats (`White`
+  / `Black`), `mm:ss`, active-side highlight (yellow border via
+  `--active`), low-time pulse (<30s, animated red via `--low`).
+  `formatClock` floors at zero on stale frames, rounds down to
+  whole seconds, pads the seconds digit. `liveRemaining` extrapolates
+  inside the 1 s tick window (capped — the next wire frame is truth).
+  Freezes on `ended`.
+- **`src/ui/useRemoteGame.ts`** — added `clock?: ClockWire` to the
+  result, `useState` holder, and the missing `case 'clock'`. Seeds
+  from `welcome.clock` when present.
+- **`src/ui/RemoteRoom.tsx`** — mounts `<Clock>` in the room bar.
+  `ended` mirrors `game.gameOver !== null`.
+- **`src/ui/theme.css`** — `.hxc-clock*` rules. ~50 lines, follow
+  the existing retro/pixel border language.
+- **`src/ui/Clock.test.tsx` (NEW)** — 8 tests (formatClock + 5
+  component cases).
+- **`src/ui/useRemoteGame.test.tsx`** — 3 tests (welcome.clock seed,
+  per-tick mirror, undefined when welcome omits).
+- **`claudedocs/CLOCK.md`** — §10 added (client rendering contract);
+  §9 dropped the "No client UI yet" item; §6 noted the protocol mirror
+  landed in `c8930f3`.
+
+**Test delta:** root 215 → 226 (+11).
+
+### Decisions worth flagging
+
+- **Pure renderer.** No extrapolation beyond the tick window (visual
+  countdown inside 1 s is cosmetic; the wire is truth).
+- **Both seats rendered, even the idle one.** The opponent's clock
+  keeps burning during the local player's move (server-side per
+  `worker/src/clock.ts`'s `afterMove`). Drawn and unrendered would
+  hide that.
+- **`ended` freezes both sides** (no active highlight, last frame's
+  numbers). The `roomEnd` frame is the terminal, not the clock.
+- **No `prefers-reduced-motion` yet** on the low-time pulse — flagged
+  as a Round 12 polish item in `CLOCK.md` §10.
+
+### Stale-entry disposition
+
+- No new tasks created (R11 was a single-fence follow-up).
+- t53 remains the only queued stub (placeholder title, no work).
+
+### Next up (dpp1)
+
+- **v0.1.3 PR** is updated (16 commits, includes R11).
+- **Round 12 candidates**: server-side checkmate / stalemate / 50-move
+  enforcement (the most material remaining gap); PGN import (round-trip
+  for replay/share); reconnect UX polish; resign over the wire
+  (currently absent from the protocol); DO test pool
+  (`@cloudflare/vitest-pool-workers`); `prefers-reduced-motion` respect
+  on the clock pulse.
+- **dvv pane**: not applicable (no pane existed in this round).
+
+## Round 12 — server-side rule-book terminal enforcement (t62, R12)
+
+Date: 2026-10-06 · Branch: `dev` · Base: `fde0769` (R11 landed) · Source:
+dispatcher dpp1 (this session) · Two parallel workers on parallel branches
+merged fast-forward into dev.
+
+### What closed
+
+The longest-standing gap in `ROOM_PROTO.md` §8.3: "checkmate / stalemate
+/ 50-move still not enforced server-side". The rules engine has had
+`status()` since the T-series (checkmate, stalemate, draw50, repetition
+all detected); the wire did not carry the verdicts. R12 lands two
+fences in parallel:
+
+**Worker fence (`round12(terminals-worker)` — `b56f131`, spp2)**
+- `worker/src/protocol.ts`: `PROTOCOL_VERSION` 2 → 3. `RoomEndMsg.reason`
+  union widens to six values: `'draw_agreement' | 'time' | 'checkmate'
+  | 'stalemate' | 'draw50' | 'repetition'`.
+- `worker/src/room.ts`: `checkTerminal()` after every accepted move
+  (mirrors t56's `tickIfElapsed` and t48's `acceptDraw` pattern).
+  Persists `ended: true` to `RoomSnapshot` (revivable). Position-key
+  history is added to the snapshot for `repetition` detection.
+- `worker/test/terminals.test.ts` (NEW, 6 tests): checkmate,
+  stalemate, draw50, repetition, post-terminal move rejection,
+  snapshot persistence.
+- `claudedocs/TERMINALS.md` (NEW): wire surface, stalemate question,
+  protocol bump, position-key history.
+- Standing gates: worker 52 → 58 (+6), wrangler dry-run clean
+  (36.48 KiB / 9.27 KiB gzip).
+
+**Client fence (`round12(terminals-client)` — `4139737`, dvv)**
+- `src/ui/protocol.ts`: mirror the protocol bump (= 3).
+- `src/ui/useGame.ts`: `recvRoomEnd` reducer maps each new wire
+  reason to the matching `GameOver` kind.
+- `src/ui/pgn.ts`: per-reason PGN result + comment. Checkmate →
+  1-0/0-1 + "Checkmate, {winner} wins". Stalemate → 3/4-1/4 or
+  1/4-3/4 + "Stalemate — Gliński 3/4 to {winner}". draw50 /
+  repetition → 1/2-1/2 with the rule name.
+- `src/ui/RemoteRoom.tsx`: per-reason banner text (existing
+  `GameOverBanner` already handles stalemate 3/4).
+- `src/ui/pgn.test.ts` (+6), `src/ui/protocol.test.ts` (+1),
+  `src/ui/useGame.test.tsx` (+8), `src/ui/useRemoteGame.test.tsx`
+  (+3).
+- `claudedocs/PGN_DRAW.md` updated to a §9 "Terminal annotations"
+  covering all 6 reasons.
+- Standing gates: root 226 → 244 (+18), `tsc -b` 0, lint clean,
+  build ok, FEN smoke 8/8.
+
+### Stalemate 3/4 framing — resolved at merge
+
+The dispatcher brief flagged the stalemate `winner` semantic as an
+open call. The two workers picked **opposite** conventions:
+
+- **spp2 (worker)**: `winner = turn` (the side whose turn it is when
+  stalemate triggers — the stalemated side in the engine's literal
+  reading).
+- **dvv (client)**: comment says "winner is the side that trapped the
+  opponent's king" — the trapping side, mirroring
+  `src/rules/adapter.ts:64` (`statusAfter` returns
+  `{ kind: 'stalemate', winner: opponent }`).
+
+**Decision: `winner = other(turn)`** — the side that trapped the
+king. Rationale: the engine adapter, the client reducer, and the PGN
+exporter all already used this convention; the worker's draft was the
+lone dissent. Game-theoretically incoherent to award 3/4 to the side
+that has no legal moves (the test fixture had black with no pieces
+left being called the "winner"). The fix landed as
+`round12-terminals-stalefix` (`2af1863`) on the worker, with the
+test fixture flipping `winner: 'black'` → `'white'`. TERMINALS.md
+§2 is rewritten to commit to the convention with full reasoning.
+
+### Final state on dev
+
+`a18fc69` (HEAD) ← `2af1863` (stalefix) ← `b56f131` (worker) ←
+`fde0769` (R11 base) ← …
+
+- All 3 R12 commits pushed to `origin/dev`.
+- All gates green: root 244/244, worker 58/58, `tsc -b` 0, lint 0,
+  build ok, FEN smoke 8/8, wrangler dry-run 36.48 KiB.
+- `dev` is now 12 commits ahead of `main` (was 9; +3 R12 commits).
+- PR #3 v0.1.3 awaits owner refresh to add the R12 row.
+
+### Dispatcher notes
+
+- Workers ran in parallel via the team agent harness
+  (`team_spawn_teammate` + `team_run_task` async). The harness is
+  workspace-agnostic; it worked from the dispatcher shell.
+- The stalemate disagreement was caught at the merge gate when the
+  dispatcher read both reports and the worker's test fixture against
+  `src/rules/adapter.ts`. **Lesson: brief at minimum references the
+  engine adapter's `statusAfter` for terminal shapes so worker
+  implementations cannot diverge.**
+- Both workers pushed their branches to `origin`. No worker had a
+  local-only branch.
+- Dispatcher merged via fast-forward (no conflict — the fences were
+  disjoint files plus the protocol-bump constant in two places).
+
+## Round 13 pre-flight — t65 protocol-doc harmonization (2026-10-06)
+
+Date: 2026-10-06 · Branch: `dev` · Base: `92ad02d` (R12 + TASKLIST) ·
+Source: dispatcher dpp1 (this session) · Single dispatcher commit
+(no worker fences; docs-only).
+
+### What closed
+
+The R12 dispatcher report flagged the protocol-doc amendment pass as
+the "orphan C-line" (t65) from Round 12. Code shipped at
+`PROTOCOL_VERSION = 3` with six `roomEnd` reasons in commits `b56f131`
++ `2af1863` + `a18fc69`, but the four protocol docs were left at
+`v1` / `v2` stubs. This round brings them into sync with no code
+changes.
+
+**`claudedocs/ROOM_PROTO.md`**
+- Header: `draft v1` → `draft v3`, with the R12 reason-union widening
+  and the v2-client rejection at join spelled out.
+- §3.2: adds `DrawOfferMsg`, `RoomEndMsg` (6 reasons + optional
+  `winner`), and `ClockMsg` to the shape block.
+- §3 control-frames table: drops the `(v2)` annotations on
+  `welcome` / `clock` / `roomEnd`; the `roomEnd` row now cross-links
+  to `TERMINALS.md` and lists "six values".
+- §8.3 "non-goals for v1" → "non-goals for v3": drops the
+  "checkmate / stalemate / 50-move not yet enforced" claim; the
+  list now says those are live, and `resign` is the single new
+  wire-level item flagged for v4.
+- §9 "Terminal state": the "two terminals in v1" sentence is replaced
+  with a six-row list mapping each reason to its source doc + SHAs.
+
+**`claudedocs/DRAW_PROTO.md`**
+- Header: `draft v1` → `draft v2`, notes the R9 client UI landed.
+- §2 (offer-clear text): the "draw_agreement is the only reason in v1"
+  sentence is replaced with the full six-reason union and cross-links
+  to `CLOCK.md` and `TERMINALS.md`.
+- §8 "non-goals": the three stale non-goals ("no client UI yet",
+  "no resign / clocks", "does not yet enforce checkmate / stalemate /
+  50-move") are replaced with what is now live + the lone remaining
+  gap (`resign`).
+
+**`claudedocs/CLOCK.md`**
+- Header: `draft v1` → `draft v2`, notes the R11 `<Clock>` UI landed
+  and the engine-game-end terminals now share the same wire.
+- §6 "Protocol bump (1 → 2)" → "Protocol bumps (1 → 2 in t56, 2 → 3 in
+  t62)": the section is widened to capture both bumps with SHAs and
+  cross-link to `TERMINALS.md`.
+
+**`claudedocs/TERMINALS.md`**
+- Header date: `2026-10-05` + `round12(terminals-worker)` →
+  `2026-10-06` + `dev`; status: `draft, client UI lands in Round 13
+  and may amend the stalemate-winner call` → `landed t62`, with the
+  actual SHAs (`b56f131` worker, `2af1863` stalefix, `4139737` +
+  `a18fc69` client mirror).
+- §5 "out of the worker fence" bullet: "client side land in Round 13"
+  → "landed in R12 in commit `a18fc69` (cherry-picked on top of
+  dispatcher stalemate-fix `2af1863`)".
+
+### Final state on dev
+
+`d1e156b` (HEAD) ← `92ad02d` (R12 TASKLIST) ← `a18fc69` (R12 client) ←
+`2af1863` (R12 stalefix) ← `b56f131` (R12 worker) ← `fde0769` (R11
+TASKLIST) ← …
+
+- All R12 + t65 commits pushed to `origin/dev`.
+- All gates green: root 244/244, worker 58/58, `tsc -b` 0, lint 0.
+- PR #3 v0.1.3 refreshed (add-commit `d1e156b`); 6/6 CI checks green.
+- Stale branches deleted on origin: `task/1-scaffold`,
+  `task/3-board-model`, `task/6-board-ui`, `task/7-retro-theme`.
+  Remaining: `main`, `dev`, `round12(terminals-worker)`,
+  `round12(terminals-client)`.
+
+### Owner review
+
+PR #3 is now 21 commits and all gates green. Ready for owner
+review per `RULES.md §5`.
+
+### Round 13 candidates (not dispatched)
+
+Logged but unblocked-by-owner. Priority order:
+
+| Pri | Task | Notes |
+| --- | ---- | ----- |
+| 1 | **PGN import** | Inverse of R10/R12 export. New `src/ui/pgnImport.ts`, tests, "Load PGN" button in `RemoteRoom`. Single-fence. |
+| 2 | **`resign` over the wire** | Adds `roomEnd{reason:'resign', winner}`. **Requires PROTOCOL bump 3 → 4** — note this in the brief. |
+| 3 | **DO test pool** | `@cloudflare/vitest-pool-workers` so `terminals.test.ts` exercises the DO isolation boundary. |
+| 4 | **`prefers-reduced-motion` respect on clock pulse** | CLOCK.md §10 polish item. ~10 lines of CSS. |
+| 5 | **Reconnect UX polish** | Status-bar visibility + backoff messaging. |
+| 6 | **Stalemate convention review (if owner flags)** | §11 to CLOCK.md or SPEC amendment if the 3/4-to-trapping-side reading gets owner pushback. |
+
+## Round 13 — DO test pool (t67, worker-fence only)
+
+Date: 2026-10-06 (dispatch) · Branch base: `9c4e169` (R13 pre-flight t65) ·
+Source: dispatcher dpp1 (this session) · Single worker fence (no
+client fence — `dvv` is reserved for the next round).
+
+### What this round ships
+
+Adds `@cloudflare/vitest-pool-workers` so the worker test suite can
+exercise `RoomDO` against a live workerd runtime instead of only
+testing the pure `RoomCore`. The R12 `terminals.test.ts` is the first
+test that crosses the DO surface (it tests `checkTerminal()` and
+snapshot persistence); today that file exercises only the pure core.
+A bug in the DO adapter in `worker/src/index.ts:44` would be invisible
+to the suite. The new pool unblocks:
+
+- Future rounds that need full WebSocket-pair / fetch-handshake tests
+  (reconnect resilience, draw-offer races, vs-AI flows).
+- Confidence the DO adapter hasn't drifted from the pure core.
+
+### Fence
+
+**Worker fence (`claude/test-do-pool` — `spp2`, t67)**
+- `worker/package.json`: `@cloudflare/vitest-pool-workers` `^0.22.0`
+  in devDependencies.
+- `worker/vitest.config.ts` (NEW): `defineWorkersConfig` from the
+  pool, `poolOptions.workers.wranglerConfig = '<cwd>/wrangler.toml'`.
+- `worker/test/setup.ts` (NEW): tiny `roomStub(env, code)` helper.
+  No D1M (the DO uses built-in SQLite via `new_sqlite_classes`).
+- `worker/test/terminals-do.test.ts` (NEW): two scenarios —
+  checkmate + stalemate — both asserting the wire `winner` semantic
+  matches the R12 dispatcher decision (`other(turn)` for stalemate).
+- The existing six test files (`protocol`, `validate`, `room`, `clock`,
+  `draw`, `terminals`) must continue to pass with no edits; if the
+  pool's per-file isolation breaks one, fix with
+  `// @vitest-environment node` rather than deleting the test.
+
+**No client fence.** The DO test pool is worker-only. `dvv` is
+reserved for the next dispatch (PGN import or `resign` over the
+wire — pending owner review of v0.1.3 PR #3 and direction signal).
+
+**No docs fence.** `claudedocs/**` is a separate dispatcher commit
+after merge.
+
+### Out-of-fence reminders (carried into the brief)
+
+- Do not bump `PROTOCOL_VERSION`. This is test-infra, not a wire change.
+- Do not touch `src/**`, `claudedocs/**`, `worker/wrangler.toml`,
+  `vite.config.ts`, `index.html`, root `package.json`, `scripts/`.
+- If an unrelated bug is found, **file it in the report, do not fix
+  it in this fence**.
+
+### Dispatch status
+
+- Brief: `/tmp/spp2_r13do_pool_brief.md`
+- Dispatcher pool entry: empty for HexChess (per R12 recall); the
+  team agent harness is used (workspace-agnostic; works from the
+  dispatcher shell).
+- Run: `run_00003` at `spp2` (status: running at dispatch time).
+- Awaiting completion before merge.

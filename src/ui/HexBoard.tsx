@@ -13,6 +13,8 @@ import {
   type PieceKind,
 } from './hexMath'
 import { GlyphRects, PieceLegend } from './pieces/Piece'
+import { PromotionBanner } from './PromotionBanner'
+import type { PendingPromotion } from './useGame'
 import './theme.css'
 
 /** Pieces keyed by Gliński notation, e.g. { f1: { kind: 'king', color: 'white' } }. */
@@ -29,13 +31,17 @@ export interface HexBoardProps {
   /** Click/tap + keyboard-activation handler for a cell. */
   onCellClick?: (notation: string) => void
   /** Currently selected cell, highlighted with an accent ring. */
-  selectedCell?: string
+  selectedCell?: string | undefined
   /** Cells (notation) to mark as legal destinations. */
   validTargets?: string[]
   /** Origin and destination of the last move, outlined in amber. */
-  lastMove?: [string, string]
+  lastMove?: [string, string] | undefined
   /** Cell of the king in check, outlined in alert red. */
-  inCheckCell?: string
+  inCheckCell?: string | undefined
+  /** Parked last-rank pawn move; renders the kind-chooser banner (t45). */
+  promotion?: PendingPromotion | null
+  /** Completes the parked promotion with the chosen kind (t45). */
+  onPromotionChoose?: (kind: PieceKind) => void
 }
 
 /* Proper 3-colouring: every edge-neighbor shifts (q - r) by ±1. Index 0 is
@@ -81,6 +87,8 @@ export function HexBoard({
   validTargets = [],
   lastMove,
   inCheckCell,
+  promotion = null,
+  onPromotionChoose,
 }: HexBoardProps) {
   const corners = useMemo(() => cellCorners(size), [size])
   const lastMoveSet = useMemo(() => new Set(lastMove ?? []), [lastMove])
@@ -125,7 +133,7 @@ export function HexBoard({
         <g>
           {[...NOTATIONS.values()].map(({ cell, notation }) => {
             const center = cellCenter(cell, size)
-            const tint = (((cell.q - cell.r) % 3) + 3) % 3
+            const tint = ((((cell.q - cell.r) % 3) + 3) % 3) as 0 | 1 | 2
             const classes = ['hxc-cell']
             if (notation === selectedCell) classes.push('hxc-cell--selected')
             if (lastMoveSet.has(notation)) classes.push('hxc-cell--last')
@@ -160,6 +168,14 @@ export function HexBoard({
           ))}
         </g>
       </svg>
+      {promotion ? (
+        <PromotionBanner
+          from={promotion.from}
+          to={promotion.to}
+          options={promotion.options}
+          onChoose={(kind) => onPromotionChoose?.(kind)}
+        />
+      ) : null}
       {legend ? <PieceLegend /> : null}
     </div>
   )
@@ -185,8 +201,8 @@ function CellPolygon({
   strokeWidth: number
   interactive: boolean
   tabIndex: number
-  onSelect?: (notation: string) => void
-  onKeyDown?: (notation: string, event: KeyboardEvent) => void
+  onSelect?: ((notation: string) => void) | undefined
+  onKeyDown?: ((notation: string, event: KeyboardEvent) => void) | undefined
 }) {
   const select = () => onSelect?.(notation)
   return (

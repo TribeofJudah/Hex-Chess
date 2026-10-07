@@ -73,7 +73,7 @@ export {
 export function initialPlacement(): Placed[] {
   const out: Placed[] = []
   for (const [key, piece] of STARTING_POSITION) {
-    const [q, r] = key.split(',').map(Number)
+    const [q, r] = key.split(',').map(Number) as [number, number]
     out.push({ cell: { q, r }, piece })
   }
   return out.sort((a, b) => b.cell.r - a.cell.r || a.cell.q - b.cell.q)

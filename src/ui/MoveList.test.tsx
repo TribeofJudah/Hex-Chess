@@ -4,9 +4,9 @@ import { MoveList } from './MoveList'
 import type { GameMove } from './useGame'
 
 const PAIRED: GameMove[] = [
-  { san: 'f5 f7', color: 'white' },
-  { san: 'g7 g5', color: 'black' },
-  { san: 'Bf3 b1', color: 'white' },
+  { san: 'f5 f7', color: 'white', from: 'f5', to: 'f7' },
+  { san: 'g7 g5', color: 'black', from: 'g7', to: 'g5' },
+  { san: 'Bf3 b1', color: 'white', from: 'f3', to: 'b1' },
 ]
 
 describe('MoveList', () => {
@@ -15,12 +15,12 @@ describe('MoveList', () => {
     const list = screen.getByTestId('move-list')
     const rows = within(list).getAllByRole('listitem')
     expect(rows).toHaveLength(2)
-    expect(rows[0].textContent).toContain('1.')
-    expect(rows[0].textContent).toContain('f5 f7')
-    expect(rows[0].textContent).toContain('g7 g5')
-    expect(rows[1].textContent).toContain('2.')
-    expect(rows[1].textContent).toContain('Bf3 b1')
-    expect(rows[1].textContent).toContain('…') // black reply pending
+    expect(rows[0]!.textContent).toContain('1.')
+    expect(rows[0]!.textContent).toContain('f5 f7')
+    expect(rows[0]!.textContent).toContain('g7 g5')
+    expect(rows[1]!.textContent).toContain('2.')
+    expect(rows[1]!.textContent).toContain('Bf3 b1')
+    expect(rows[1]!.textContent).toContain('…') // black reply pending
   })
 
   it('shows an empty state before the first move', () => {

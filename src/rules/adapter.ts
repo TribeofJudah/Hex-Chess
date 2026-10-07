@@ -1,13 +1,8 @@
 import { notationToAxial, axialToNotation } from '../board/notation'
 import { keyOf, type Piece, type PieceType } from '../board/pieces'
 import { findKing, inCheck, movesFrom, status, type GameState } from './rules'
-import type {
-  BoardPieces,
-  GameOver,
-  GameRules,
-  PieceColor,
-  PieceKind,
-} from '../ui/useGame'
+import type { PieceColor, PieceKind } from '../ui/hexMath'
+import type { BoardPieces, GameOver, GameRules } from '../ui/useGame'
 
 const KIND_TO_TYPE: Record<PieceKind, PieceType> = {
   king: 'K',
@@ -27,7 +22,7 @@ function boardPiecesToState(
     const axial = notationToAxial(notation)
     if (axial) {
       board.set(keyOf(axial), {
-        type: KIND_TO_TYPE[piece.kind],
+        type: KIND_TO_TYPE[piece.kind]!,
         color: piece.color === 'white' ? 'w' : 'b',
       })
     }

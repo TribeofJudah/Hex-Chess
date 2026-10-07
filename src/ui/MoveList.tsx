@@ -17,7 +17,7 @@ export function MoveList({ moves, turn, viewPly, onJump }: MoveListProps) {
   for (let i = 0; i < moves.length; i += 2) {
     pairs.push({
       number: Math.floor(i / 2) + 1,
-      white: moves[i],
+      white: moves[i]!,
       black: moves[i + 1],
     })
   }
@@ -73,8 +73,8 @@ function MoveCell({
 }: {
   san: string
   ply: number
-  viewPly?: number
-  onJump?: (ply: number) => void
+  viewPly?: number | undefined
+  onJump?: ((ply: number) => void) | undefined
 }) {
   return (
     <button

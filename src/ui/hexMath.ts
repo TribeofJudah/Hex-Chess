@@ -63,7 +63,7 @@ export function cellToFileRank(cell: HexCell): { file: string; rank: number } {
   const { q, r, s } = cell
   if (!isValidQr(q, r)) throw new Error(`not a board cell: q=${q} r=${r}`)
   const rank = q >= 0 ? r + 6 : 6 - s
-  return { file: FILES[q + BOARD_RADIUS], rank }
+  return { file: FILES[q + BOARD_RADIUS]!, rank }
 }
 
 export function fileRankToCell(file: string, rank: number): HexCell {
