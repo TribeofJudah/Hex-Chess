@@ -6,7 +6,12 @@ export interface GameOverBannerProps {
   onPlayAgain: () => void
 }
 
-function bannerText(gameOver: GameOver): string {
+/**
+ * Single source of truth for how a finished game is phrased (t67, rvv1
+ * cross-seam): the banner and the hotseat status line both render this, so the
+ * resignation copy can't drift between them.
+ */
+export function gameOverText(gameOver: GameOver): string {
   switch (gameOver.kind) {
     case 'checkmate':
       return `Checkmate — ${gameOver.winner} wins`
@@ -30,7 +35,7 @@ export function GameOverBanner({ gameOver, onPlayAgain }: GameOverBannerProps) {
   return (
     <div className="hxc-banner" role="alert">
       <p className="hxc-banner__text" data-testid="banner-text">
-        {bannerText(gameOver)}
+        {gameOverText(gameOver)}
       </p>
       <button type="button" className="hxc-button" onClick={onPlayAgain}>
         Play again

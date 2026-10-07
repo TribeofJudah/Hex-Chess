@@ -1,9 +1,14 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeSocketFactory, welcomeMsg } from '../test/fakeSocket'
 import { PROTOCOL_VERSION } from './protocol'
 import { RemoteRoom } from './RemoteRoom'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  delete (navigator as unknown as { clipboard?: unknown }).clipboard
+})
 
 describe('RemoteRoom', () => {
   it('shows the room code and the seat from the welcome frame', () => {
@@ -11,11 +16,15 @@ describe('RemoteRoom', () => {
     render(<RemoteRoom roomCode="ABCD" connect={connect} />)
 
     expect(screen.getByText('ABCD')).toBeTruthy()
-    expect(screen.getByText(/you are spectator/)).toBeTruthy()
+    expect(screen.getByTestId('seat-status').textContent).toBe(
+      'You are Spectating · waiting for opponent',
+    )
 
     act(() => current().open())
     act(() => current().recv(welcomeMsg({ seat: 'black' })))
-    expect(screen.getByText(/you are black/)).toBeTruthy()
+    expect(screen.getByTestId('seat-status').textContent).toBe(
+      'You are Black · waiting for opponent',
+    )
   })
 
   it('walks the status bar from connecting to waiting to playing', () => {
@@ -118,5 +127,79 @@ describe('RemoteRoom', () => {
       (screen.getByRole('button', { name: 'Resign' }) as HTMLButtonElement)
         .disabled,
     ).toBe(true)
+  })
+
+  // t67: share the room and read opponent presence.
+  it('copies a share link and announces it', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+    const { connect } = makeSocketFactory()
+    render(<RemoteRoom roomCode="abcd" connect={connect} />)
+    expect(screen.getByTestId('room-code').textContent).toBe('abcd')
+    fireEvent.click(screen.getByTestId('copy-link'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('#/play/ABCD'))
+    await waitFor(() =>
+      expect(screen.getByTestId('copy-status').textContent).toBe('Link copied'),
+    )
+  })
+
+  it('falls back to selectable text when the clipboard is unavailable', () => {
+    // jsdom has no navigator.clipboard by default.
+    delete (navigator as unknown as { clipboard?: unknown }).clipboard
+    const { connect } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    fireEvent.click(screen.getByTestId('copy-link'))
+    expect(screen.getByTestId('copy-status').textContent).toMatch(
+      /select the code/,
+    )
+  })
+
+  it('reports opponent presence as connected then disconnected', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'peer',
+        connected: true,
+        seats: { white: true, black: true },
+      }),
+    )
+    expect(screen.getByTestId('seat-status').textContent).toContain(
+      'opponent connected',
+    )
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'peer',
+        connected: false,
+        seats: { white: true, black: false },
+      }),
+    )
+    expect(screen.getByTestId('seat-status').textContent).toContain(
+      'opponent disconnected',
+    )
+  })
+
+  it('shows reconnect progress and retries on demand', () => {
+    const { connect, sockets, current } = makeSocketFactory()
+    const { container } = render(
+      <RemoteRoom roomCode="ABCD" connect={connect} />,
+    )
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    act(() => current().drop())
+
+    const bar = container.querySelector('.hxc-room__bar')!.textContent ?? ''
+    expect(bar).toContain('Reconnecting… attempt 1')
+    const retry = screen.getByTestId('retry-now')
+    fireEvent.click(retry)
+    expect(sockets).toHaveLength(2)
+    expect(screen.queryByTestId('retry-now')).toBeNull()
   })
 })

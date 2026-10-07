@@ -3,27 +3,15 @@ import { HexBoard } from './ui/HexBoard'
 import { ControlBar } from './ui/ControlBar'
 import { PositionEditor } from './ui/PositionEditor'
 import { MoveList } from './ui/MoveList'
-import { GameOverBanner } from './ui/GameOverBanner'
+import { GameOverBanner, gameOverText } from './ui/GameOverBanner'
+import { Lobby } from './ui/Lobby'
 import { RemoteRoom } from './ui/RemoteRoom'
-import { useGame, type GameOver } from './ui/useGame'
+import { useGame } from './ui/useGame'
 import { DrawOfferBanner } from './ui/DrawOfferBanner'
 import { downloadPgn, toPgn } from './ui/pgn'
 import { parsePgn, replayPgn } from './ui/pgnImport'
-import { navigate, newRoomCode, useRoute } from './ui/router'
+import { navigate, useRoute } from './ui/router'
 import { glinskiRules } from './rules/adapter'
-
-function gameOverText(gameOver: GameOver): string {
-  if (gameOver.kind === 'agreement') return 'Draw — by agreement'
-  if (gameOver.kind === 'resign') return `${gameOver.winner} wins — resignation`
-  if (gameOver.winner) {
-    return gameOver.kind === 'checkmate'
-      ? `Checkmate — ${gameOver.winner} wins`
-      : `Stalemate — ${gameOver.winner} wins 0.75-0.25`
-  }
-  return gameOver.kind === 'fifty-move'
-    ? 'Draw — fifty-move rule'
-    : 'Draw — threefold repetition'
-}
 
 /** Local hotseat (or vs-AI) game — the default route. */
 function HotseatGame() {
@@ -78,7 +66,7 @@ function HotseatGame() {
         onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
         onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
         onLoadPgn={loadPgn}
-        onCreateRoom={() => navigate({ name: 'play', roomCode: newRoomCode() })}
+        onCreateRoom={() => navigate({ name: 'online' })}
       />
 
       <PositionEditor onLoad={game.loadFen} />
@@ -141,6 +129,9 @@ function HotseatGame() {
 
 export default function App() {
   const route = useRoute()
+  if (route.name === 'online') {
+    return <Lobby />
+  }
   if (route.name === 'play') {
     return (
       <RemoteRoom
