@@ -24,7 +24,10 @@ export interface HexBoardProps {
   /** Cell circumradius in SVG user units. */
   size?: number
   pieces?: BoardPieces
-  /** CRT scanline overlay, defaults on. */
+  /**
+   * @deprecated The CRT overlay was removed in R15 (t64); this prop is
+   * ignored. RemoteRoom.tsx still passes it — delete both together.
+   */
   scanlines?: boolean
   /** Glyph strip below the board (preview aid), defaults on. */
   legend?: boolean
@@ -43,6 +46,14 @@ export interface HexBoardProps {
   /** Completes the parked promotion with the chosen kind (t45). */
   onPromotionChoose?: (kind: PieceKind) => void
 }
+
+/* Every glyph draws inside y 1.9..23 of the 22x24 piece box (see
+   pieces/Piece.tsx), so the box is taller than the piece the eye reads. These
+   are that ink span, and the share of the cell's √3·size height it should
+   cover. */
+const INK_TOP = 1.9
+const INK_BOTTOM = 23
+const INK_HEIGHT_RATIO = 0.72
 
 /* Proper 3-colouring: every edge-neighbor shifts (q - r) by ±1. Index 0 is
    the central cell, which Gliński's board shades mid-tone. */
@@ -80,7 +91,6 @@ function arrowNeighbor(notation: string, key: string): string | null {
 export function HexBoard({
   size = 30,
   pieces = {},
-  scanlines = true,
   legend = true,
   onCellClick,
   selectedCell,
@@ -120,10 +130,7 @@ export function HexBoard({
   }
 
   return (
-    <div
-      ref={rootRef}
-      className={`hxc-wrapper${scanlines ? ' hxc-wrapper--scanlines' : ''}`}
-    >
+    <div ref={rootRef} className="hxc-wrapper">
       <svg
         className="hxc-svg"
         viewBox={viewBox(size)}
@@ -251,15 +258,18 @@ function PlacedPiece({
 }) {
   const cell = fileRankToCell(notation.slice(0, 1), Number(notation.slice(1)))
   const center = cellCenter(cell, size)
-  // 1.25 cell-radii tall: big enough to read, inside the cell's own height.
-  const height = size * 1.25
-  const width = (height * PIECE_BOX.w) / PIECE_BOX.h
-  // Sit the plinth (y = 23 of 24) just above the cell's lower vertex.
-  const baseline = -center.y + (Math.sqrt(3) / 2) * size * 0.78
+  // Size the box so the *drawn* silhouette (y 1.9..23 of the box, not the box
+  // itself) lands at INK_HEIGHT_RATIO of the cell's √3·size height, then centre
+  // that silhouette — not the box — on the cell (t64 defect 3).
+  const cellHeight = Math.sqrt(3) * size
+  const scale = (cellHeight * INK_HEIGHT_RATIO) / (INK_BOTTOM - INK_TOP)
+  const height = scale * PIECE_BOX.h
+  const width = scale * PIECE_BOX.w
+  const inkMid = ((INK_TOP + INK_BOTTOM) / 2) * scale
   return (
     <svg
       x={center.x - width / 2}
-      y={baseline - (height * 23) / PIECE_BOX.h}
+      y={-center.y - inkMid}
       width={width}
       height={height}
       viewBox={`0 0 ${PIECE_BOX.w} ${PIECE_BOX.h}`}

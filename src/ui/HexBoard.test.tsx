@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { HexBoard } from './HexBoard'
+import { cellCenter, fileRankToCell } from './hexMath'
 
 describe('HexBoard', () => {
   it('mounts the 91-cell board with per-cell a11y ids', () => {
@@ -22,7 +23,7 @@ describe('HexBoard', () => {
     expect(screen.queryByLabelText('piece-legend')).toBeNull()
   })
 
-  it('shows the 12-glyph legend by default and toggles scanlines', () => {
+  it('shows the 12-glyph legend by default and hides it on demand', () => {
     const { rerender, container } = render(<HexBoard />)
     expect(screen.getByTestId('piece-legend')).toBeTruthy()
     expect(
@@ -30,12 +31,40 @@ describe('HexBoard', () => {
         name: /^(white|black) (king|queen|rook|bishop|knight|pawn)$/,
       }),
     ).toHaveLength(12)
-    rerender(<HexBoard pieces={{ f1: { kind: 'king', color: 'white' } }} />)
-    expect(container.querySelector('[data-testid="piece-legend"]')).toBeTruthy()
-    const wrapper = screen
-      .getByRole('img', { name: /91 cells, 1 pieces placed/ })
-      .closest('.hxc-wrapper')
-    expect(wrapper?.className).toContain('hxc-wrapper--scanlines')
+    rerender(
+      <HexBoard pieces={{ f1: { kind: 'king', color: 'white' } }} legend={false} />,
+    )
+    expect(container.querySelector('[data-testid="piece-legend"]')).toBeNull()
+  })
+
+  it('drops the removed CRT scanline hook (t64)', () => {
+    const { container } = render(<HexBoard legend={false} />)
+    expect(container.querySelector('.hxc-wrapper')?.className).toBe(
+      'hxc-wrapper',
+    )
+  })
+
+  it('sizes and centres the drawn piece, not the piece box (t64)', () => {
+    render(
+      <HexBoard
+        legend={false}
+        pieces={{ f1: { kind: 'king', color: 'white' } }}
+      />,
+    )
+    const piece = screen.getByLabelText('white king on f1')
+    // Ink spans y 1.9..23 of the box, so the box itself is taller than the
+    // 72% of the cell height the silhouette should cover.
+    const cellHeight = Math.sqrt(3) * 30
+    const scale = (cellHeight * 0.72) / (23 - 1.9)
+    const height = Number(piece.getAttribute('height'))
+    expect(height).toBeCloseTo(scale * 24, 3)
+    // …so the drawn silhouette covers 72% of the cell height.
+    expect((23 - 1.9) * (height / 24)).toBeCloseTo(cellHeight * 0.72, 3)
+    // Centred: the ink's own midpoint sits on the cell centre, so the plinth
+    // hangs exactly as far below the centre as the head rises above it.
+    const y = Number(piece.getAttribute('y'))
+    const inkMid = ((1.9 + 23) / 2) * scale
+    expect(y + inkMid).toBeCloseTo(-cellCenter(fileRankToCell('f', 1), 30).y, 3)
   })
 })
 

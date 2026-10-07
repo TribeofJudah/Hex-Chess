@@ -1,8 +1,20 @@
 import { useRef, type ChangeEvent } from 'react'
 
+/** `system` follows prefers-color-scheme; the others pin `data-theme`. */
+export type Theme = 'system' | 'light' | 'dark'
+
 export interface ControlBarProps {
-  scanlines: boolean
-  onToggleScanlines: () => void
+  /**
+   * @deprecated The CRT overlay was removed in R15 (t64); this prop is
+   * ignored. RemoteRoom.tsx still passes it — delete both together.
+   */
+  scanlines?: boolean
+  /** @deprecated See `scanlines`. */
+  onToggleScanlines?: () => void
+  /** Current colour theme. Omitted (with `onThemeChange`) hides the switch. */
+  theme?: Theme
+  /** Picks a colour theme; the choice is persisted by the caller. */
+  onThemeChange?: (theme: Theme) => void
   onNewGame?: () => void
   onUndo?: () => void
   /** UNDO stays disabled until game state history exists (T8). */
@@ -28,9 +40,11 @@ export interface ControlBarProps {
 
 const DEPTHS = [1, 2, 3, 4, 5] as const
 
+const THEMES: Theme[] = ['system', 'light', 'dark']
+
 export function ControlBar({
-  scanlines,
-  onToggleScanlines,
+  theme = 'system',
+  onThemeChange,
   onNewGame,
   onUndo,
   undoEnabled = false,
@@ -121,22 +135,27 @@ export function ControlBar({
       >
         Export PGN
       </button>
-      <input
-        ref={pgnInput}
-        type="file"
-        accept=".pgn,text/plain"
-        hidden
-        data-testid="pgn-file-input"
-        onChange={readPgn}
-      />
-      <button
-        type="button"
-        className="hxc-button"
-        onClick={() => pgnInput.current?.click()}
-        disabled={!onLoadPgn}
-      >
-        Load PGN
-      </button>
+      {/* Both the input and its button go when import is unwired: a
+          permanently disabled control reads as a broken one (t64 defect 7). */}
+      {onLoadPgn ? (
+        <>
+          <input
+            ref={pgnInput}
+            type="file"
+            accept=".pgn,text/plain"
+            hidden
+            data-testid="pgn-file-input"
+            onChange={readPgn}
+          />
+          <button
+            type="button"
+            className="hxc-button"
+            onClick={() => pgnInput.current?.click()}
+          >
+            Load PGN
+          </button>
+        </>
+      ) : null}
       <button
         type="button"
         className="hxc-button"
@@ -145,14 +164,31 @@ export function ControlBar({
       >
         Play online
       </button>
-      <button
-        type="button"
-        className="hxc-button hxc-switch"
-        aria-pressed={scanlines}
-        onClick={onToggleScanlines}
-      >
-        Scanlines {scanlines ? 'on' : 'off'}
-      </button>
+      {onThemeChange ? (
+        <div className="hxc-themeswitch">
+          <span className="hxc-themeswitch__label" id="theme-switch-label">
+            Theme
+          </span>
+          <div
+            className="hxc-themeswitch__group"
+            role="radiogroup"
+            aria-labelledby="theme-switch-label"
+          >
+            {THEMES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={theme === option}
+                className="hxc-button hxc-switch"
+                onClick={() => onThemeChange(option)}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

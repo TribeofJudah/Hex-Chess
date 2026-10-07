@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HexBoard } from './ui/HexBoard'
-import { ControlBar } from './ui/ControlBar'
+import { ControlBar, type Theme } from './ui/ControlBar'
 import { PositionEditor } from './ui/PositionEditor'
 import { MoveList } from './ui/MoveList'
 import { GameOverBanner, gameOverText } from './ui/GameOverBanner'
@@ -13,11 +13,39 @@ import { parsePgn, replayPgn } from './ui/pgnImport'
 import { navigate, useRoute } from './ui/router'
 import { glinskiRules } from './rules/adapter'
 
+/** Shared with the pre-paint script in index.html — change both together. */
+const THEME_KEY = 'hexchess:theme'
+
+function readStoredTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch {
+    // Private mode blocks storage; fall through to the OS preference.
+  }
+  return 'system'
+}
+
+// t67 (rvv1): `gameOverText` now lives in GameOverBanner, so the banner and
+// this status line share one phrasing.
+
 /** Local hotseat (or vs-AI) game — the default route. */
 function HotseatGame() {
   const game = useGame(glinskiRules)
-  const [scanlines, setScanlines] = useState(true)
+  const [theme, setTheme] = useState<Theme>(readStoredTheme)
   const [pgnError, setPgnError] = useState<string | null>(null)
+
+  // `system` is the *absence* of the attribute, so prefers-color-scheme wins.
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'system') root.removeAttribute('data-theme')
+    else root.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch {
+      // Private mode: the theme still applies, it just does not outlive the tab.
+    }
+  }, [theme])
 
   // PGN import (t61): parse, resolve against the rule-book generator, then
   // replay the validated list. A rejected move shows the ply + reason inline
@@ -53,8 +81,8 @@ function HotseatGame() {
       </header>
 
       <ControlBar
-        scanlines={scanlines}
-        onToggleScanlines={() => setScanlines((on) => !on)}
+        theme={theme}
+        onThemeChange={setTheme}
         onNewGame={game.newGame}
         onUndo={game.undo}
         undoEnabled={game.canUndo}
@@ -90,7 +118,6 @@ function HotseatGame() {
             pieces={game.position}
             size={24}
             legend={true}
-            scanlines={scanlines}
             onCellClick={game.clickCell}
             selectedCell={game.selected ?? undefined}
             validTargets={game.validTargets}

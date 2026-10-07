@@ -668,3 +668,37 @@ after merge.
   dispatcher shell).
 - Run: `run_00003` at `spp2` (status: running at dispatch time).
 - Awaiting completion before merge.
+
+## Round 14 — print-poster restyle (t60) + PGN import (t61) — 2026-10-07
+
+Dispatcher: claude (pane 56). Workers in existing panes: dvv1 = pane 49, dvv2 = pane 28
+(both deepseek-v4.1-flash:cloud, text-only), reviewer rvv1 = pane 50 (glm-5.3-flash:cloud).
+Worktrees: `../HexChess-wt/<task>` on `r14/*` branches. Art direction source: `design/inspo/`.
+
+- t60 (dvv1) `5ea2c4c`: light = risograph poster (cream/ink/terracotta/cobalt/mustard),
+  dark = wireframe. Space Grotesk + Space Mono replace Press Start 2P; CRT removed;
+  animations gated on `prefers-reduced-motion`. rvv1: APPROVE.
+- t61 (dvv2) `0bb7b88`: `pgnImport.ts` parse + replay through the legal-move generator,
+  `useGame.loadMoves`, Load PGN button. rvv1: APPROVE. Tests 244 → 264.
+- Merged to dev: `44aacc0`, `1e36f9f`. Gate green (lint, build, 264/264).
+- Dispatcher visual check found: dark-mode black/white pieces indistinguishable (blocker),
+  grain band hard edges, small low-set pieces, square focus box on hex, favicon 404,
+  dead Scanlines button → all carried into t64.
+- Repo rule from owner: no AI attribution trailers; `.git/hooks/commit-msg` enforces it.
+  Pre-existing trailers remain in pushed `8ab6f11`, `5ab962f` (needs owner OK to rewrite).
+
+## Round 15 — poster fixes + theme switch (t64) · resign over wire v4 + DO pool (t65)
+
+- t64 (dvv1, branch `r15/t62-poster-fix`): the t60 visual defects + System/Light/Dark
+  theme switch (persisted, no flash), hide Load PGN in remote rooms.
+- t65 (dvv2, branch `r15/t63-resign-wire`): `resign` frame → `roomEnd{reason:'resign'}`,
+  PROTOCOL_VERSION 3 → 4 on both sides; finishes t67 (`@cloudflare/vitest-pool-workers`,
+  DO tests for checkmate / stalemate / resign). ROOM_PROTO.md delta by dispatcher after merge.
+
+## Round 16 — owner requests (queued)
+
+- Motion: piece slide on move, capture fade, check pulse, board/theme transitions; all
+  behind `prefers-reduced-motion`.
+- Multiplayer: remote rooms exist (code-based, no account) but are not reachable from the
+  live site yet. Scope: deploy the worker (CF_DEPLOY.md), point Pages at it, lobby UX
+  (create / share link / join), reconnect polish.
