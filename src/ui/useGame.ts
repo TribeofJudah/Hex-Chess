@@ -299,6 +299,11 @@ type GameAction =
   | { type: 'newGame' }
   | { type: 'jumpTo'; ply: number }
   | { type: 'loadPosition'; position: BoardPieces; turn: PieceColor }
+  /**
+   * PGN import (t61): replay a move list from the initial position, keeping
+   * one undo snapshot per ply so the loaded game undoes like a played one.
+   */
+  | { type: 'loadMoves'; moves: GameMove[]; rules: GameRules }
   | { type: 'resign' }
   | { type: 'draw' }
   | { type: 'choosePromotion'; kind: PieceKind; rules: GameRules }
@@ -505,6 +510,17 @@ function reducer(store: GameStore, action: GameAction): GameStore {
         history: [],
         viewPly: null,
       }
+    case 'loadMoves': {
+      // PGN import (t61): rebuild from the initial position by replaying each
+      // move through `play`, which pushes one undo snapshot per ply. `play`
+      // regenerates the SAN, so a loaded game is indistinguishable from a
+      // played one (undo, browse, captured counts all follow).
+      let next: GameStore = { game: freshState(), history: [], viewPly: null }
+      for (const move of action.moves) {
+        next = play(next, move.from, move.to, action.rules, move.promotion)
+      }
+      return next
+    }
     case 'resign': {
       // The side to move resigns; the opponent wins (T16).
       const { game } = store
@@ -698,6 +714,12 @@ export interface UseGameResult {
   jumpTo(ply: number): void
   /** Load a FEN-like position into the live board; reports parse errors (T13). */
   loadFen(text: string): { ok: true } | { ok: false; error: string }
+  /**
+   * Replace the game by replaying `moves` from the initial position (PGN
+   * import, t61). Rebuilds the undo stack, one snapshot per ply; callers
+   * must validate the list first (see `replayPgn`).
+   */
+  loadMoves(moves: GameMove[]): void
   /** The side to move resigns; the opponent wins (T16). */
   resign(): void
   /** Both players agree to a draw (T16). */
@@ -812,6 +834,9 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
   }
   const inCheckCell =
     rules.inCheckCell?.(shown.position, shown.turn) ?? undefined
+  // PGN import (t61): replay a validated move list from the initial position.
+  const loadMoves = (moves: GameMove[]) =>
+    dispatch({ type: 'loadMoves', moves, rules })
 
   return {
     position: shown.position,
@@ -839,6 +864,7 @@ export function useGame(rules: GameRules = lenientRules): UseGameResult {
     newGame,
     jumpTo,
     loadFen,
+    loadMoves,
     resign: () => dispatch({ type: 'resign' }),
     agreeDraw: () => dispatch({ type: 'draw' }),
     drawOffer: game.drawOffer,

@@ -8,6 +8,7 @@ import { RemoteRoom } from './ui/RemoteRoom'
 import { useGame, type GameOver } from './ui/useGame'
 import { DrawOfferBanner } from './ui/DrawOfferBanner'
 import { downloadPgn, toPgn } from './ui/pgn'
+import { parsePgn, replayPgn } from './ui/pgnImport'
 import { navigate, newRoomCode, useRoute } from './ui/router'
 import { glinskiRules } from './rules/adapter'
 
@@ -28,6 +29,21 @@ function gameOverText(gameOver: GameOver): string {
 function HotseatGame() {
   const game = useGame(glinskiRules)
   const [scanlines, setScanlines] = useState(true)
+  const [pgnError, setPgnError] = useState<string | null>(null)
+
+  // PGN import (t61): parse, resolve against the rule-book generator, then
+  // replay the validated list. A rejected move shows the ply + reason inline
+  // (the `.hxc-position__error` role=alert pattern) instead of an alert().
+  const loadPgn = (text: string) => {
+    const { sans } = parsePgn(text)
+    const result = replayPgn(sans, glinskiRules)
+    if (Array.isArray(result)) {
+      setPgnError(null)
+      game.loadMoves(result)
+    } else {
+      setPgnError(`PGN move ${result.ply + 1}: ${result.error}`)
+    }
+  }
 
   const status = game.gameOver
     ? gameOverText(game.gameOver)
@@ -61,10 +77,17 @@ function HotseatGame() {
         onResign={game.resign}
         onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
         onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
+        onLoadPgn={loadPgn}
         onCreateRoom={() => navigate({ name: 'play', roomCode: newRoomCode() })}
       />
 
       <PositionEditor onLoad={game.loadFen} />
+
+      {pgnError ? (
+        <p className="hxc-position__error" role="alert">
+          {pgnError}
+        </p>
+      ) : null}
 
       <div className="app__layout">
         <section
