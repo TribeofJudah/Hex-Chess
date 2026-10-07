@@ -542,7 +542,12 @@
   color: var(--ink);
 }
 
+/* The room code is what a player reads aloud to a friend, so it gets the
+   loudest type on the page: big, wide-tracked Space Mono under a cobalt rule. */
 .hxc-room__code {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink);
@@ -578,6 +583,66 @@
 .hxc-room__dot--error,
 .hxc-room__dot--closed {
   background: var(--alert);
+}
+
+/* --- Online lobby (t67) --------------------------------------------------
+   The route card, in the board's own language: same paper, a hairline-thicker
+   ink rule and the same offset shadow as the board frame, so "create or join a
+   room" reads as a printed panel rather than a form. */
+
+.hxc-lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1.5px solid var(--ink);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-top: 14px;
+}
+
+.hxc-lobby__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.hxc-lobby__label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* A build with no room server says so here instead of dialing one and failing.
+   Ink-dim is the poster's second voice; the mustard rule keeps it from reading
+   as an error. */
+.hxc-lobby__notice {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--ink-dim);
+  border-left: 4px solid var(--mustard);
+  padding-left: 8px;
+}
+
+.hxc-lobby__notice code {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+/* Room code, copy button and copy status, in a live room's header. */
+.hxc-lobby__share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-family: var(--font-mono);
 }
 
 /* --- Clock (t56 / R11) --------------------------------------------------- */

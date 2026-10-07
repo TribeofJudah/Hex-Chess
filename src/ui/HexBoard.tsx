@@ -136,6 +136,20 @@ function boardKey(pieces: BoardPieces): string {
     .join(' ')
 }
 
+/** Squares whose piece — presence, kind or colour — differs between two boards. */
+function changedSquares(before: BoardPieces, after: BoardPieces): string[] {
+  return [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (notation) => {
+      const was = before[notation]
+      const now = after[notation]
+      return (
+        !was !== !now ||
+        Boolean(was && now && (was.kind !== now.kind || was.color !== now.color))
+      )
+    },
+  )
+}
+
 /**
  * Diff the board from one render ago against this one and decide what moved.
  *
@@ -163,6 +177,37 @@ function planMotion(
      move's origin still reads as forward and jiggles for `--motion-base`. The
      props cannot tell the two apart; passing the turn, or an undo flag, would. */
   if (!mover || !wasFrom || after[from]) return NO_MOTION
+  /* A single move touches at most three squares: the one it left, the one it
+     took, and — en passant — the pawn that vanishes beside them. A wider diff is
+     not a move but a whole position landing at once: loading a PGN
+     (useGame.loadMoves) and a remote resync both replace the board and leave
+     `lastMove` on the *final* ply, which would otherwise read as one enormous
+     slide plus a ghost for every square the intervening moves emptied. Those
+     snap. ponytail: a jump of exactly two moves also lands on ≤3 squares when
+     one of them was a capture, and still jiggles; separating it needs the
+     intermediate position, which nothing here holds. */
+  const changed = changedSquares(before, after)
+  if (changed.length > 3) return NO_MOTION
+  /* The extra square, if any, can only be a piece that vanished next to the
+     destination — an en-passant victim. Anything appearing, or vanishing
+     elsewhere on the board, is that same position-jump wearing a move's shape. */
+  const gone = changed.filter(
+    (notation) => notation !== from && notation !== to,
+  )
+  if (
+    gone.some((notation) => {
+      const victim = notationToAxial(notation)
+      const landing = notationToAxial(to)
+      return (
+        after[notation] !== undefined ||
+        !victim ||
+        !landing ||
+        axialDistance(victim, landing) !== 1
+      )
+    })
+  ) {
+    return NO_MOTION
+  }
   const motion: Record<string, PieceMotion> = {
     [to]:
       wasFrom.color === mover.color &&

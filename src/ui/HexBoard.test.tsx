@@ -387,6 +387,63 @@ describe('HexBoard motion (t66)', () => {
     expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
   })
 
+  it('snaps when a whole position lands at once — PGN load, remote resync (t66)', () => {
+    // `loadMoves` and the remote `rebuild` both hand down a finished position
+    // with `lastMove` on the final ply. The final move's own pair looks
+    // legitimate against the *old* board — a piece left `from`, `to` is
+    // occupied — so without a size check this reads as one slide plus a ghost
+    // for every square the intervening moves emptied.
+    const START = {
+      f1: { kind: 'king', color: 'white' },
+      g1: { kind: 'queen', color: 'white' },
+      f2: { kind: 'pawn', color: 'white' },
+      e7: { kind: 'pawn', color: 'black' },
+      g10: { kind: 'rook', color: 'black' },
+    } as const
+    const LATE = {
+      f1: { kind: 'king', color: 'white' },
+      k5: { kind: 'queen', color: 'white' },
+      f4: { kind: 'pawn', color: 'white' },
+      e3: { kind: 'pawn', color: 'black' },
+      a4: { kind: 'rook', color: 'black' },
+    } as const
+    const { rerender, container } = render(
+      <HexBoard legend={false} pieces={START} />,
+    )
+    rerender(
+      <HexBoard legend={false} pieces={LATE} lastMove={['e7', 'e3']} />,
+    )
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+  })
+
+  it('snaps a two-move jump that happens to end on a legal-looking pair', () => {
+    // Two moves between renders, so the board is one move older than `lastMove`
+    // says. `e7`-`e5` is a genuine pair on its own — the white rook simply moved
+    // first, and under the old diff both it and the black pawn left ghosts.
+    const { rerender, container } = render(
+      <HexBoard
+        legend={false}
+        pieces={{
+          g10: ROOK,
+          e7: { kind: 'pawn', color: 'black' },
+        }}
+      />,
+    )
+    rerender(
+      <HexBoard
+        legend={false}
+        pieces={{
+          g9: ROOK,
+          e5: { kind: 'pawn', color: 'black' },
+        }}
+        lastMove={['e7', 'e5']}
+      />,
+    )
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+  })
+
   it('animates nothing when the reader asked for less motion', () => {
     stubReducedMotion(true)
     const { rerender, container } = render(
@@ -428,5 +485,32 @@ describe('HexBoard motion (t66)', () => {
     expect(
       container.querySelector('.hxc-wrapper')?.getAttribute('style'),
     ).toContain('--hex-perimeter: 180px')
+  })
+})
+
+/* The lobby markup ships from t67 with bare class names; this is where they get
+   their poster clothes. Checked here because this file is the one that scans
+   theme.css — a rule that goes missing is invisible to every other test. */
+describe('theme.css lobby (t66b)', () => {
+  it('dresses every lobby class, in the board-frame language', () => {
+    for (const selector of [
+      '.hxc-lobby',
+      '.hxc-lobby__notice',
+      '.hxc-lobby__row',
+      '.hxc-lobby__label',
+      '.hxc-lobby__share',
+    ]) {
+      expect(declares(selector, 'font-family') || declares(selector, 'display'), selector).toBe(
+        true,
+      )
+    }
+    // The card: hairline rule, offset shadow — the board frame's own tokens.
+    expect(declares('.hxc-lobby', 'border:1.5pxsolidvar(--ink)')).toBe(true)
+    expect(declares('.hxc-lobby', 'box-shadow:var(--shadow)')).toBe(true)
+    expect(declares('.hxc-lobby__notice', 'color:var(--ink-dim)')).toBe(true)
+    // The room code is the one thing on the page a player reads out loud.
+    expect(declares('.hxc-room__code', 'font-family:var(--font-mono)')).toBe(true)
+    expect(declares('.hxc-room__code', 'font-weight:700')).toBe(true)
+    expect(declares('.hxc-room__code', 'letter-spacing:var(--track-label)')).toBe(true)
   })
 })
