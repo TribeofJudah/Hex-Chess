@@ -1,3 +1,5 @@
+import { useRef, type ChangeEvent } from 'react'
+
 export interface ControlBarProps {
   scanlines: boolean
   onToggleScanlines: () => void
@@ -18,6 +20,8 @@ export interface ControlBarProps {
       local turn, room not connected). */
   onOfferDraw?: (() => void) | undefined
   onExportPgn?: () => void
+  /** Import a `.pgn` file's text (t61). Omitted to hide the button. */
+  onLoadPgn?: (text: string) => void
   /** Create a remote room and navigate to it (T-remote-play, t39). */
   onCreateRoom?: () => void
 }
@@ -37,8 +41,18 @@ export function ControlBar({
   onResign,
   onOfferDraw,
   onExportPgn,
+  onLoadPgn,
   onCreateRoom,
 }: ControlBarProps) {
+  const pgnInput = useRef<HTMLInputElement>(null)
+
+  const readPgn = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    void file.text().then((text) => onLoadPgn?.(text))
+    // Clear so re-picking the same file fires `change` again.
+    event.target.value = ''
+  }
   return (
     <div className="hxc-controls" role="toolbar" aria-label="Board controls">
       {/* Title-case labels: CSS uppercases them; screen readers read words. */}
@@ -106,6 +120,22 @@ export function ControlBar({
         disabled={!onExportPgn}
       >
         Export PGN
+      </button>
+      <input
+        ref={pgnInput}
+        type="file"
+        accept=".pgn,text/plain"
+        hidden
+        data-testid="pgn-file-input"
+        onChange={readPgn}
+      />
+      <button
+        type="button"
+        className="hxc-button"
+        onClick={() => pgnInput.current?.click()}
+        disabled={!onLoadPgn}
+      >
+        Load PGN
       </button>
       <button
         type="button"

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ControlBar } from './ControlBar'
 
@@ -50,7 +50,7 @@ describe('ControlBar', () => {
     const disabled = screen
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('disabled'))
-    expect(disabled).toHaveLength(7) // New game, Undo, AI, Resign, Offer draw, Export PGN, Play online
+    expect(disabled).toHaveLength(8) // New game, Undo, AI, Resign, Offer draw, Export PGN, Load PGN, Play online
   })
 
   it('fires the resign and draw handlers (T16)', () => {
@@ -104,5 +104,27 @@ describe('ControlBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export PGN' }))
     expect(onToggleAi).toHaveBeenCalledTimes(1)
     expect(onExportPgn).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads a chosen .pgn file into onLoadPgn (t61)', async () => {
+    const onLoadPgn = vi.fn()
+    render(
+      <ControlBar
+        scanlines
+        onToggleScanlines={() => {}}
+        onLoadPgn={onLoadPgn}
+      />,
+    )
+    const input = screen.getByTestId('pgn-file-input') as HTMLInputElement
+    expect(input.accept).toBe('.pgn,text/plain')
+    const file = new File(['1. f5 f6 e7 e5'], 'game.pgn', {
+      type: 'application/x-chess-pgn',
+    })
+    fireEvent.change(input, { target: { files: [file] } })
+    await waitFor(() =>
+      expect(onLoadPgn).toHaveBeenCalledWith('1. f5 f6 e7 e5'),
+    )
+    // The input is cleared so the same file can be re-selected.
+    expect(input.value).toBe('')
   })
 })

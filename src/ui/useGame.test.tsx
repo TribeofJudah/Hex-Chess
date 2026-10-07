@@ -538,3 +538,41 @@ describe('useGame draw offer (t49)', () => {
     },
   )
 })
+
+describe('useGame PGN import (t61)', () => {
+  it('replays a move list from the initial position, undoing ply by ply', () => {
+    const { result } = renderHook(() => useGame(glinskiRules))
+    act(() =>
+      result.current.loadMoves([
+        { san: 'f5 f6', color: 'white', from: 'f5', to: 'f6' },
+        { san: 'e7 e5', color: 'black', from: 'e7', to: 'e5' },
+      ]),
+    )
+    expect(result.current.moves.map((m) => m.san)).toEqual(['f5 f6', 'e7 e5'])
+    expect(result.current.turn).toBe('white')
+    expect(result.current.position.f6).toEqual({ kind: 'pawn', color: 'white' })
+    expect(result.current.position.e5).toEqual({ kind: 'pawn', color: 'black' })
+    expect(result.current.canUndo).toBe(true)
+
+    act(() => result.current.undo())
+    expect(result.current.moves).toHaveLength(1)
+    expect(result.current.turn).toBe('black')
+    act(() => result.current.undo())
+    expect(result.current.moves).toHaveLength(0)
+    expect(result.current.canUndo).toBe(false)
+    expect(result.current.position).toEqual(initialPieces())
+  })
+
+  it('discards the previous game and its undo stack', () => {
+    const { result } = renderHook(() => useGame())
+    move({ result }, 'g1', 'f6')
+    expect(result.current.moves).toHaveLength(1)
+    act(() =>
+      result.current.loadMoves([
+        { san: 'c2 c3', color: 'white', from: 'c2', to: 'c3' },
+      ]),
+    )
+    expect(result.current.moves.map((m) => m.san)).toEqual(['c2 c3'])
+    expect(result.current.canUndo).toBe(true)
+  })
+})
