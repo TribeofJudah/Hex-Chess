@@ -1,7 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+// The app tsconfig carries vite/client types only, so the one node builtin a
+// test needs has to be opted in here rather than project-wide. (t66)
+// @ts-expect-error - node:fs is untyped under tsconfig.app.json
+import { readFileSync } from 'node:fs'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { axialDistance } from '../board/axial'
+import { notationToAxial } from '../board/notation'
 import { HexBoard } from './HexBoard'
 import { cellCenter, fileRankToCell } from './hexMath'
+import { Piece } from './pieces/Piece'
 
 describe('HexBoard', () => {
   it('mounts the 91-cell board with per-cell a11y ids', () => {
@@ -153,5 +160,357 @@ describe('HexBoard interactivity', () => {
     fireEvent.click(screen.getByTestId('promo-rook'))
     expect(onChoose).toHaveBeenCalledTimes(1)
     expect(onChoose).toHaveBeenCalledWith('rook')
+  })
+})
+
+/* --- Motion (R16 / t66) ----------------------------------------------------
+   jsdom has no hit-testing, no layout and no CSS, so the two things a real
+   browser enforces — which element a click lands on, and which declarations
+   reach it — are checked here as facts about the markup and the stylesheet.
+   The rest is behaviour: what HexBoard renders for a given pair of boards. */
+
+const THEME_CSS: string = readFileSync('src/ui/theme.css', 'utf8')
+
+/** Every `selectors { declarations }` block, comments stripped. */
+const CSS_BLOCKS = [
+  ...THEME_CSS.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g),
+]
+
+/** Does any rule for `selector` (alone or in a list) declare this? */
+function declares(selector: string, declaration: string): boolean {
+  return CSS_BLOCKS.some(
+    (block) =>
+      (block[1] ?? '')
+        .split(',')
+        .map((name) => name.trim())
+        .includes(selector) &&
+      (block[2] ?? '').replace(/\s+/g, '').includes(declaration),
+  )
+}
+
+const ROOK = { kind: 'rook', color: 'white' } as const
+
+function stubReducedMotion(reduce: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: reduce && query.includes('reduce'),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }))
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('HexBoard pointer targets (t66)', () => {
+  it('gives a click on a piece glyph to the cell under it', () => {
+    render(
+      <HexBoard legend={false} pieces={{ f5: { kind: 'pawn', color: 'white' } }} />,
+    )
+    const piece = screen.getByLabelText('white pawn on f5')
+    const centre = cellCenter(fileRankToCell('f', 5), 30)
+    // It sits squared over the cell centre, so it *would* be the hit target…
+    expect(
+      Number(piece.getAttribute('x')) + Number(piece.getAttribute('width')) / 2,
+    ).toBeCloseTo(centre.x, 3)
+    // …but the layer it draws in takes no pointer, so the cell polygon stays
+    // the target (theme.css, and the attribute the browser reads either way).
+    expect(piece.closest('[pointer-events="none"]')).toBe(piece.parentElement)
+    expect(declares('.hxc-piece', 'pointer-events:none')).toBe(true)
+    expect(declares('.hxc-piece-box', 'pointer-events:none')).toBe(true)
+  })
+
+  it('keeps the legal-target dot above 3:1 on every cell it is drawn on (t66)', () => {
+    // WCAG 1.4.11 for a non-text indicator. The dot is the ink token, so this
+    // holds for all three cell tints at once — including the 0.9 composite over
+    // the lightest dark cell — and the check is that it stays that way.
+    const luminance = (hex: string) => {
+      const n = Number.parseInt(hex.slice(1), 16)
+      const channel = (v: number) => {
+        const c = v / 255
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+      }
+      return (
+        0.2126 * channel((n >> 16) & 255) +
+        0.7152 * channel((n >> 8) & 255) +
+        0.0722 * channel(n & 255)
+      )
+    }
+    const ratio = (a: string, b: string) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+      return (hi! + 0.05) / (lo! + 0.05)
+    }
+    // The three dark cells: black, 8% white, 16% white.
+    expect(ratio('#f4f1ea', '#000')).toBeGreaterThanOrEqual(3)
+    expect(ratio('#f4f1ea', '#292929')).toBeGreaterThanOrEqual(3)
+    const { container } = render(
+      <HexBoard
+        legend={false}
+        onCellClick={() => {}}
+        selectedCell="f6"
+        validTargets={['f7']}
+      />,
+    )
+    expect(container.querySelector('.hxc-target')?.getAttribute('fill')).toBe(
+      'var(--target-dot)',
+    )
+    // Ink in light mode — the accents never reach 3:1 on every tint — and the
+    // same near-white, near-opaque, in both dark blocks.
+    expect(declares(':root', '--target-dot:var(--ink)')).toBe(true)
+    expect(THEME_CSS.match(/--target-dot:\s*#f4f1ea/g)).toHaveLength(2)
+  })
+})
+
+describe('HexBoard motion (t66)', () => {
+  const slideOf = (wrapper: HTMLElement, axis: string) =>
+    Number.parseFloat(wrapper.style.getPropertyValue(axis))
+
+  it('slides the moved piece from the square it came from', () => {
+    const { rerender } = render(<HexBoard legend={false} pieces={{ g10: ROOK }} />)
+    rerender(
+      <HexBoard legend={false} pieces={{ g9: ROOK }} lastMove={['g10', 'g9']} />,
+    )
+    const wrapper = screen.getByLabelText('white rook on g9').parentElement!
+    expect(wrapper.getAttribute('class')).toBe('hxc-piece-move')
+    const origin = cellCenter(fileRankToCell('g', 10), 30)
+    const dest = cellCenter(fileRankToCell('g', 9), 30)
+    // FLIP: the wrapper starts back on the source square (screen y is negated).
+    expect(slideOf(wrapper, '--slide-x')).toBeCloseTo(origin.x - dest.x, 6)
+    expect(slideOf(wrapper, '--slide-y')).toBeCloseTo(dest.y - origin.y, 6)
+    // …and turns about its own middle, not the board's.
+    expect(declares('.hxc-piece-move', 'transform-box:fill-box')).toBe(true)
+  })
+
+  it('leaves a piece that did not move alone', () => {
+    const { rerender } = render(
+      <HexBoard legend={false} pieces={{ g10: ROOK, f1: { kind: 'king', color: 'white' } }} />,
+    )
+    rerender(
+      <HexBoard
+        legend={false}
+        pieces={{ g9: ROOK, f1: { kind: 'king', color: 'white' } }}
+        lastMove={['g10', 'g9']}
+      />,
+    )
+    expect(
+      screen.getByLabelText('white king on f1').parentElement?.getAttribute('class'),
+    ).toBeNull()
+  })
+
+  it('fades the captured piece out under the one arriving on its square', () => {
+    const { rerender, container } = render(
+      <HexBoard legend={false} pieces={{ g10: ROOK, g9: { kind: 'pawn', color: 'black' } }} />,
+    )
+    rerender(
+      <HexBoard legend={false} pieces={{ g9: ROOK }} lastMove={['g10', 'g9']} />,
+    )
+    const ghost = container.querySelector('.hxc-piece-ghost')
+    expect(ghost?.getAttribute('aria-hidden')).toBe('true')
+    expect(ghost?.querySelector('[aria-label="black pawn on g9"]')).toBeTruthy()
+    // Ghost first in document order, so paint puts the arriving piece on top.
+    const pieces = container.querySelectorAll('.hxc-piece-ghost, .hxc-piece-move')
+    expect(pieces[0]).toBe(ghost)
+  })
+
+  it('slides a pawn en passant and drops the pawn it took beside it', () => {
+    const { rerender, container } = render(
+      <HexBoard
+        legend={false}
+        pieces={{ e5: { kind: 'pawn', color: 'white' }, f5: { kind: 'pawn', color: 'black' } }}
+      />,
+    )
+    rerender(
+      <HexBoard
+        legend={false}
+        pieces={{ f6: { kind: 'pawn', color: 'white' } }}
+        lastMove={['e5', 'f6']}
+      />,
+    )
+    expect(container.querySelector('.hxc-piece-ghost [aria-label="black pawn on f5"]')).toBeTruthy()
+    expect(screen.getByLabelText('white pawn on f6').parentElement?.getAttribute('class')).toBe(
+      'hxc-piece-move',
+    )
+  })
+
+  it('slides the pawn on a promotion, then swaps in the chosen kind', () => {
+    const { rerender, container } = render(
+      <HexBoard legend={false} pieces={{ e9: { kind: 'pawn', color: 'white' } }} />,
+    )
+    rerender(
+      <HexBoard
+        legend={false}
+        pieces={{ e10: { kind: 'queen', color: 'white' } }}
+        lastMove={['e9', 'e10']}
+      />,
+    )
+    const wrapper = screen.getByLabelText('white queen on e10').parentElement!
+    expect(wrapper.getAttribute('class')).toBe('hxc-piece-move')
+    // Both glyphs ride the journey: the pawn, then the queen over it.
+    const { container: lone } = render(<Piece kind="pawn" color="white" />)
+    const pawnPath = lone.querySelector('path')?.getAttribute('d')
+    expect(container.querySelector('.hxc-glyph--out path')?.getAttribute('d')).toBe(
+      pawnPath,
+    )
+    expect(container.querySelector('.hxc-glyph--in path')?.getAttribute('d')).not.toBe(
+      pawnPath,
+    )
+    // At rest — reduced motion, or before the slide finishes — the pawn is
+    // gone and the chosen piece is in place.
+    expect(declares('.hxc-glyph--out', 'opacity:0')).toBe(true)
+    expect(declares('.hxc-glyph--in', 'opacity:1')).toBe(true)
+  })
+
+  it('snaps when the board goes backwards — undo and move-list browsing (t66)', () => {
+    const { rerender, container } = render(
+      <HexBoard
+        legend={false}
+        pieces={{ g10: ROOK, c3: { kind: 'pawn', color: 'white' } }}
+        lastMove={['g9', 'g10']}
+      />,
+    )
+    // Undo the pawn move: the board goes back and `lastMove` becomes the older
+    // move, whose `from` is empty in both frames — so nothing travelled and the
+    // pawn that left is not a capture.
+    rerender(
+      <HexBoard legend={false} pieces={{ g10: ROOK }} lastMove={['g9', 'g10']} />,
+    )
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+    // …and the same for a first-move undo, where the pair is dropped outright.
+    rerender(<HexBoard legend={false} pieces={{ g9: ROOK }} />)
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+  })
+
+  it('snaps when a whole position lands at once — PGN load, remote resync (t66)', () => {
+    // `loadMoves` and the remote `rebuild` both hand down a finished position
+    // with `lastMove` on the final ply. The final move's own pair looks
+    // legitimate against the *old* board — a piece left `from`, `to` is
+    // occupied — so without a size check this reads as one slide plus a ghost
+    // for every square the intervening moves emptied.
+    const START = {
+      f1: { kind: 'king', color: 'white' },
+      g1: { kind: 'queen', color: 'white' },
+      f2: { kind: 'pawn', color: 'white' },
+      e7: { kind: 'pawn', color: 'black' },
+      g10: { kind: 'rook', color: 'black' },
+    } as const
+    const LATE = {
+      f1: { kind: 'king', color: 'white' },
+      k5: { kind: 'queen', color: 'white' },
+      f4: { kind: 'pawn', color: 'white' },
+      e3: { kind: 'pawn', color: 'black' },
+      a4: { kind: 'rook', color: 'black' },
+    } as const
+    const { rerender, container } = render(
+      <HexBoard legend={false} pieces={START} />,
+    )
+    rerender(
+      <HexBoard legend={false} pieces={LATE} lastMove={['e7', 'e3']} />,
+    )
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+  })
+
+  it('snaps a two-move jump that happens to end on a legal-looking pair', () => {
+    // Two moves between renders, so the board is one move older than `lastMove`
+    // says. `e7`-`e5` is a genuine pair on its own — the white rook simply moved
+    // first, and under the old diff both it and the black pawn left ghosts.
+    const { rerender, container } = render(
+      <HexBoard
+        legend={false}
+        pieces={{
+          g10: ROOK,
+          e7: { kind: 'pawn', color: 'black' },
+        }}
+      />,
+    )
+    rerender(
+      <HexBoard
+        legend={false}
+        pieces={{
+          g9: ROOK,
+          e5: { kind: 'pawn', color: 'black' },
+        }}
+        lastMove={['e7', 'e5']}
+      />,
+    )
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+  })
+
+  it('animates nothing when the reader asked for less motion', () => {
+    stubReducedMotion(true)
+    const { rerender, container } = render(
+      <HexBoard legend={false} pieces={{ g10: ROOK, g9: { kind: 'pawn', color: 'black' } }} />,
+    )
+    rerender(<HexBoard legend={false} pieces={{ g9: ROOK }} lastMove={['g10', 'g9']} />)
+    expect(container.querySelector('.hxc-piece-move')).toBeNull()
+    expect(container.querySelector('.hxc-piece-ghost')).toBeNull()
+    // The final state is already on the board.
+    expect(screen.getByLabelText('white rook on g9')).toBeTruthy()
+  })
+
+  it('stages the legal-target fan by distance, inside the 120ms budget', () => {
+    const { container } = render(
+      <HexBoard
+        legend={false}
+        onCellClick={() => {}}
+        selectedCell="f6"
+        validTargets={['f7', 'g7', 'h8']}
+      />,
+    )
+    const delayOf = (notation: string) =>
+      Number.parseInt(
+        screen.getByTestId(`target-${notation}`).style.animationDelay || '0',
+        10,
+      )
+    const distanceOf = (notation: string) =>
+      axialDistance(notationToAxial('f6')!, notationToAxial(notation)!)
+    const near = delayOf('f7')
+    const mid = delayOf('g7')
+    const far = delayOf('h8')
+    // Ordered by how far each one is from the selected piece…
+    expect(distanceOf('f7')).toBeLessThan(distanceOf('h8'))
+    expect(near).toBeLessThan(mid)
+    expect(mid).toBeLessThan(far)
+    // …and the whole fan still lands inside one --motion-fast.
+    expect(far).toBe(120)
+    // The ring animates its dash the length of the cell's own perimeter.
+    expect(
+      container.querySelector('.hxc-wrapper')?.getAttribute('style'),
+    ).toContain('--hex-perimeter: 180px')
+  })
+})
+
+/* The lobby markup ships from t67 with bare class names; this is where they get
+   their poster clothes. Checked here because this file is the one that scans
+   theme.css — a rule that goes missing is invisible to every other test. */
+describe('theme.css lobby (t66b)', () => {
+  it('dresses every lobby class, in the board-frame language', () => {
+    for (const selector of [
+      '.hxc-lobby',
+      '.hxc-lobby__notice',
+      '.hxc-lobby__row',
+      '.hxc-lobby__label',
+      '.hxc-lobby__share',
+    ]) {
+      expect(declares(selector, 'font-family') || declares(selector, 'display'), selector).toBe(
+        true,
+      )
+    }
+    // The card: hairline rule, offset shadow — the board frame's own tokens.
+    expect(declares('.hxc-lobby', 'border:1.5pxsolidvar(--ink)')).toBe(true)
+    expect(declares('.hxc-lobby', 'box-shadow:var(--shadow)')).toBe(true)
+    expect(declares('.hxc-lobby__notice', 'color:var(--ink-dim)')).toBe(true)
+    // The room code is the one thing on the page a player reads out loud.
+    expect(declares('.hxc-room__code', 'font-family:var(--font-mono)')).toBe(true)
+    expect(declares('.hxc-room__code', 'font-weight:700')).toBe(true)
+    expect(declares('.hxc-room__code', 'letter-spacing:var(--track-label)')).toBe(true)
   })
 })

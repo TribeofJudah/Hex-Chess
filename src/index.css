@@ -37,6 +37,15 @@
   --panel: rgb(255 255 255 / 46%);
   --shadow: 6px 6px 0 var(--orange);
   --title-shadow: 4px 4px 0 var(--terracotta);
+  --btn-shadow: 2px 2px 0 var(--ink);
+
+  /* Motion (R16 / t66). Print-poster motion: short, crisp, no overshoot. Every
+     use is wrapped in prefers-reduced-motion; these mirror the constants in
+     src/ui/motion.ts. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
 
   /* Type: geometric grotesk for display, mono for every label and number. */
   --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
@@ -73,6 +82,9 @@
     --panel: rgb(255 255 255 / 4%);
     --shadow: none;
     --title-shadow: none;
+    /* No offset shadows in the wireframe mood; buttons still take the press
+       offset (theme.css), they just have nothing to collapse. */
+    --btn-shadow: none;
   }
 }
 
@@ -92,6 +104,7 @@
   --panel: rgb(255 255 255 / 4%);
   --shadow: none;
   --title-shadow: none;
+  --btn-shadow: none;
 }
 
 :root[data-theme='light'] {

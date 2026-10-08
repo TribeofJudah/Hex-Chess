@@ -1,4 +1,6 @@
 import { useRef, type ChangeEvent } from 'react'
+import { flushSync } from 'react-dom'
+import { withViewTransition } from './motion'
 
 /** `system` follows prefers-color-scheme; the others pin `data-theme`. */
 export type Theme = 'system' | 'light' | 'dark'
@@ -181,7 +183,12 @@ export function ControlBar({
                 role="radio"
                 aria-checked={theme === option}
                 className="hxc-button hxc-switch"
-                onClick={() => onThemeChange(option)}
+                onClick={() =>
+                  // Cross-fade the recolour (t66). flushSync because the
+                  // transition snapshots the "after" frame as soon as this
+                  // returns, while the theme itself lands in App's effect.
+                  withViewTransition(() => flushSync(() => onThemeChange(option)))
+                }
               >
                 {option}
               </button>

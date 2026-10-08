@@ -15,6 +15,13 @@
   --cell-hover: var(--cobalt);
   --alert: var(--terracotta);
 
+  /* Legal-target dot. Ink, not the cobalt accent: on the warm-grey cell cobalt
+     measures 1.9:1, and no accent in the palette clears the 3:1 a non-text
+     indicator needs against all three board tints. Ink at 75% does, on every
+     one of them (t66). */
+  --target-dot: var(--ink);
+  --target-dot-opacity: 0.75;
+
   /* Pieces: cream body, ink outline, orange rim at the base; charcoal body
      with an orange rim for black. */
   --piece-white: #fdf8ee;
@@ -34,6 +41,10 @@
     --cell-border: #f4f1ea;
     --cell-stroke: 1px;
     --cell-hover: #f4f1ea;
+    /* Near-opaque: at 55% the dot composited to a mid grey on the lighter
+       cells, well under the 3:1 an indicator owes (t66). */
+    --target-dot: #f4f1ea;
+    --target-dot-opacity: 0.9;
 
     /* White pieces are outline-only; black pieces are a solid ink-white body
        with the orange rim. Fill vs. no fill is what separates the two sides
@@ -53,6 +64,8 @@
   --cell-border: #f4f1ea;
   --cell-stroke: 1px;
   --cell-hover: #f4f1ea;
+  --target-dot: #f4f1ea;
+  --target-dot-opacity: 0.9;
 
   --piece-white: transparent;
   --piece-white-accent: #f4f1ea;
@@ -85,7 +98,16 @@
 
 /* Pieces. One plinth path + one body path per glyph; colour comes from the
    `--piece-*` tokens so the same markup is a risograph print in light mode
-   and a wireframe in dark. */
+   and a wireframe in dark.
+
+   No piece takes a pointer: the cell polygon underneath owns the click, and a
+   glyph that hit-tests leaves only the sliver of cell around it clickable
+   (t66). */
+.hxc-piece,
+.hxc-piece-box {
+  pointer-events: none;
+}
+
 .hxc-piece {
   stroke-width: var(--piece-stroke);
   stroke-linejoin: round;
@@ -150,8 +172,8 @@
 @media (prefers-reduced-motion: no-preference) {
   .hxc-cell {
     transition:
-      stroke 120ms ease-out,
-      stroke-width 120ms ease-out;
+      stroke var(--motion-fast) var(--ease-out),
+      stroke-width var(--motion-fast) var(--ease-out);
   }
 }
 
@@ -177,7 +199,9 @@
   margin-top: 12px;
 }
 
-/* Mono caps, hairline rule, no fill until you touch it — a printed button. */
+/* Mono caps, hairline rule, no fill until you touch it — a printed button.
+   Sits 2px off the paper (`--btn-shadow`, `none` in the wireframe mood) and
+   presses into it on click — see the motion block at the end of this file. */
 .hxc-button {
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -186,6 +210,7 @@
   color: var(--ink);
   background: transparent;
   border: 1px solid var(--ink);
+  box-shadow: var(--btn-shadow);
   padding: 9px 13px;
   cursor: pointer;
 }
@@ -517,7 +542,12 @@
   color: var(--ink);
 }
 
+/* The room code is what a player reads aloud to a friend, so it gets the
+   loudest type on the page: big, wide-tracked Space Mono under a cobalt rule. */
 .hxc-room__code {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink);
@@ -553,6 +583,66 @@
 .hxc-room__dot--error,
 .hxc-room__dot--closed {
   background: var(--alert);
+}
+
+/* --- Online lobby (t67) --------------------------------------------------
+   The route card, in the board's own language: same paper, a hairline-thicker
+   ink rule and the same offset shadow as the board frame, so "create or join a
+   room" reads as a printed panel rather than a form. */
+
+.hxc-lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--panel);
+  border: 1.5px solid var(--ink);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-top: 14px;
+}
+
+.hxc-lobby__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.hxc-lobby__label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* A build with no room server says so here instead of dialing one and failing.
+   Ink-dim is the poster's second voice; the mustard rule keeps it from reading
+   as an error. */
+.hxc-lobby__notice {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--ink-dim);
+  border-left: 4px solid var(--mustard);
+  padding-left: 8px;
+}
+
+.hxc-lobby__notice code {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+/* Room code, copy button and copy status, in a live room's header. */
+.hxc-lobby__share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-family: var(--font-mono);
 }
 
 /* --- Clock (t56 / R11) --------------------------------------------------- */
@@ -635,5 +725,233 @@
 
   50% {
     opacity: 0.45;
+  }
+}
+
+/* --- Motion (R16 / t66) ---------------------------------------------------
+   Print-poster motion: short, crisp, mechanical, and one-shot — no springs, no
+   blur, no loop except the low-time clock, which owns its own 1s step pulse
+   above (a transition token would turn it into a flicker). Everything that
+   animates lives inside `prefers-reduced-motion: no-preference`, so a
+   reduced-motion reader gets the final state on the first frame; nothing
+   animates a layout property — transform, opacity and stroke paint only. */
+
+.hxc-piece-move,
+.hxc-piece-ghost {
+  /* `fill-box` is the piece's own bounds, so the capture's scale turns about
+     the glyph's middle. The SVG default (`view-box`) would measure the origin
+     from the viewBox corner — off-board here — and scale the piece toward the
+     middle of the board instead. */
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.hxc-piece-ghost {
+  /* The captured piece, held under the arriving one until HexBoard drops it. */
+  pointer-events: none;
+}
+
+/* Legal-target dot, before and after its animation. */
+.hxc-target {
+  opacity: var(--target-dot-opacity);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Last-move tint. An overlay polygon rather than a cell recolour, so the
+   board's three-colour shading still reads underneath it. */
+.hxc-cell-tint {
+  fill-opacity: 0.22;
+  pointer-events: none;
+}
+
+/* Promotion: the two glyph layers. At rest — i.e. for reduced motion, where
+   neither animation runs — the pawn that travelled is gone and the chosen
+   piece is in place. */
+.hxc-glyph--out {
+  opacity: 0;
+}
+
+.hxc-glyph--in {
+  opacity: 1;
+}
+
+.hxc-glyph--out,
+.hxc-glyph--in {
+  transform-box: view-box;
+  transform-origin: 11px 12px; /* centre of the 22x24 piece box */
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* 1. Piece slide. HexBoard measures the source and destination centres with
+     hexMath and hands the delta over as --slide-x / --slide-y; the keyframe
+     starts the piece back on the square it left so it reads as travelling. */
+  .hxc-piece-move {
+    animation: hxc-piece-slide var(--motion-base) var(--ease-out);
+  }
+
+  /* 2. Capture: the ghost fades and shrinks to 0.85 under the arriving piece. */
+  .hxc-piece-ghost {
+    animation: hxc-piece-capture var(--motion-fast) var(--ease-out) forwards;
+  }
+
+  /* 3. Legal targets bloom outward — HexBoard delays each dot by its distance
+     from the selected piece, capped at 120ms for the whole fan. `backwards`
+     holds the dot invisible while it waits its turn. */
+  .hxc-target {
+    animation: hxc-target-in var(--motion-fast) var(--ease-out) backwards;
+  }
+
+  /* 3b. The selection ring draws itself: the hexagon's own perimeter is the
+     dash length, so a full offset hides the ring and zero shows it all.
+     --hex-perimeter comes from HexBoard's `size`. */
+  .hxc-cell--selected {
+    stroke-dasharray: var(--hex-perimeter, 0);
+    animation: hxc-ring-draw var(--motion-base) var(--ease-out) forwards;
+  }
+
+  /* 4. Last move: the source and destination tints fade in once and hold. */
+  .hxc-cell-tint {
+    animation: hxc-tint-in var(--motion-base) var(--ease-out);
+  }
+
+  /* 5. Check: two pulses of the dotted ring, then static. */
+  .hxc-cell--check {
+    animation: hxc-check-pulse var(--motion-slow) var(--ease-out) 2;
+  }
+
+  /* 6. Banners rise 8px into place. `.hxc-banner` is the game-over headline,
+     styled from here because its component belongs to another task. */
+  .hxc-banner,
+  .hxc-promo,
+  .hxc-draw {
+    animation: hxc-banner-in var(--motion-base) var(--ease-out);
+  }
+
+  /* 7. The theme cross-fade is a View Transition, driven from
+     ControlBar's handler (src/ui/motion.ts) — there is nothing to style. */
+
+  /* 9. Buttons press into the page: a 2px offset, with the offset shadow
+     collapsing under them. */
+  .hxc-button {
+    transition:
+      transform var(--motion-fast) var(--ease-out),
+      box-shadow var(--motion-fast) var(--ease-out);
+  }
+
+  .hxc-button:active:not(:disabled) {
+    transform: translate(2px, 2px);
+    box-shadow: 0 0 0 var(--ink);
+  }
+
+  /* Promotion, second half: once the slide has landed, the pawn that made the
+     trip goes and the chosen glyph scales in over it. */
+  .hxc-glyph--out {
+    animation: hxc-glyph-out var(--motion-fast) var(--ease-out) var(--motion-base)
+      both;
+  }
+
+  .hxc-glyph--in {
+    animation: hxc-glyph-in var(--motion-fast) var(--ease-out) var(--motion-base)
+      both;
+  }
+}
+
+@keyframes hxc-piece-slide {
+  from {
+    transform: translate(var(--slide-x, 0), var(--slide-y, 0));
+  }
+
+  to {
+    transform: none;
+  }
+}
+
+@keyframes hxc-piece-capture {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes hxc-target-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+
+  to {
+    opacity: var(--target-dot-opacity);
+    transform: none;
+  }
+}
+
+@keyframes hxc-ring-draw {
+  from {
+    stroke-dashoffset: var(--hex-perimeter, 0);
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes hxc-tint-in {
+  from {
+    fill-opacity: 0;
+  }
+
+  to {
+    fill-opacity: 0.22;
+  }
+}
+
+@keyframes hxc-check-pulse {
+  0%,
+  100% {
+    stroke-width: 3px;
+  }
+
+  50% {
+    stroke-width: 6px;
+  }
+}
+
+@keyframes hxc-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes hxc-glyph-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes hxc-glyph-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
