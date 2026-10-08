@@ -100,20 +100,28 @@ export function Piece({ kind, color, width = 24, className }: PieceProps) {
   )
 }
 
-/** All twelve glyphs in a strip, for preview and test. */
+/** All twelve glyphs in a strip, under a caption, for preview and test. */
 export function PieceLegend({ width = 24 }: { width?: number }) {
   return (
     <div className="hxc-legend" data-testid="piece-legend">
-      {PIECE_COLORS.map((color) =>
-        PIECE_KINDS.map((kind) => (
-          <Piece
-            key={`${color}-${kind}`}
-            kind={kind}
-            color={color}
-            width={width}
-          />
-        )),
-      )}
+      {/* The caption is what keeps the strip reading as a key rather than as a
+          row of captured pieces (B6). `aria-hidden` so the twelve glyphs stay
+          the only images in the legend. */}
+      <span className="hxc-legend__label" aria-hidden="true">
+        Pieces
+      </span>
+      <div className="hxc-legend__strip">
+        {PIECE_COLORS.map((color) =>
+          PIECE_KINDS.map((kind) => (
+            <Piece
+              key={`${color}-${kind}`}
+              kind={kind}
+              color={color}
+              width={width}
+            />
+          )),
+        )}
+      </div>
     </div>
   )
 }
