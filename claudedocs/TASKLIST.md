@@ -743,3 +743,36 @@ Worktrees: `../HexChess-wt/<task>` on `r14/*` branches. Art direction source: `d
 - t82 (dvv2, `r18/t82-home-review`): home screen (`#/`, `#/local`, `#/local/ai`),
   hotseat game review (move click, ←/→, Home/End, back to live), move announcements via
   the StatusBar live region.
+
+## Round 19 — Xchess reframe: research bench (planned; dispatch after Round 18 merges)
+
+**Direction change, owner-approved 2026-10-08:** the product is now **Xchess** (in-repo
+identity rebrand landed at `dc69ba4`: README, titles, package names, PGN Event tag —
+GitHub remote and Pages URL unchanged). The development axis is the **Xchess bench**:
+a terminal-first LLM reasoning-research harness on the existing rules core. Full
+approach doc: `claudedocs/XCHESS_BENCH.md` (feasibility verdict: GO, with stated
+limits). TUI screen mockups: `~/Desktop/xchess-research-platform.md`.
+
+Feasibility gates already verified against the tree at `dc69ba4`: perft-validated rules
+core, protocol v4 text frames, embryonic grading engine (`src/ai/ai.ts:47`), 355+66
+tests green. The bench adds only `src/bench/**` (+ deepening `src/ai`) — no UI, worker,
+or protocol changes in Phase A.
+
+| id | Task | Owner | Paths | Gate | Deps | Phase |
+|----|------|-------|-------|------|------|-------|
+| t90 | Headless match runner + JSONL stream + agent-adapter interface + random/greedy bots | dvv1 | `src/bench/**` | `npm test -- src/bench && npm run build` | — | A |
+| t91 | Grading engine: per-ply eval + PV top-3 + quiescence (deepen `src/ai/ai.ts`) | dvv1 | `src/ai/**`, `src/bench/grader*` | `npm test -- src/ai && npm test -- src/bench` | t90 | A |
+| t92 | `xc` CLI + TUI screens: bench-watch, dash metrics, dash heat, dash ladder | dvv2 | `src/bench/tui/**`, `scripts/` | `npm test -- src/bench && npm run build` | t90 (dash needs JSONL) | A |
+| t93 | Suites S1 (legality gauntlet) + S4 (consistency probes) + suite registry | dvv1 | `src/bench/suites/**` | `npm test -- src/bench` | t91 (S1 needs legality only; S4 needs runner) | B |
+| t94 | Session report generator (SVG/HTML from JSONL) + artifact publish step | dvv2 | `src/bench/report*` | `npm run build` + report snapshot test | t92 | B |
+| t95 | Model-vs-model matches + anchor Elo + pinned-version regression CI | dpp1 | `scripts/`, `.github/workflows/` | nightly run green | t91, t93 | B |
+
+Dispatch rules for this round:
+- Order: t90 → (t91 ∥ t92) → t93 → (t94 ∥ t95). Round 18 (t81/t82) must merge first —
+  not a path conflict (`src/ui/**` + `worker/**` vs `src/bench/**` are disjoint) but a
+  review-bandwidth one.
+- Fence: `src/bench/**` never imports `src/ui/**`; shared geometry comes from
+  `src/board`/`src/rules` only. No new npm dependencies (plain Node + ANSI, per
+  XCHESS_BENCH.md §6).
+- Round 18's owner-pending item (Pages `VITE_ROOM_ORIGIN` workflow diff + worker
+  deploy) is unaffected and still open.
