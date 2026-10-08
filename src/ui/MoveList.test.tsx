@@ -11,7 +11,7 @@ const PAIRED: GameMove[] = [
 
 describe('MoveList', () => {
   it('pairs half-moves under one move number', () => {
-    render(<MoveList moves={PAIRED} turn="black" />)
+    render(<MoveList moves={PAIRED} />)
     const list = screen.getByTestId('move-list')
     const rows = within(list).getAllByRole('listitem')
     expect(rows).toHaveLength(2)
@@ -24,20 +24,20 @@ describe('MoveList', () => {
   })
 
   it('shows an empty state before the first move', () => {
-    render(<MoveList moves={[]} turn="white" />)
+    render(<MoveList moves={[]} />)
     expect(screen.getByText('no moves yet')).toBeTruthy()
   })
 
-  it('shows the current turn indicator', () => {
-    const { rerender } = render(<MoveList moves={PAIRED} turn="black" />)
-    expect(screen.getByRole('status').textContent).toBe('Black to move')
-    rerender(<MoveList moves={PAIRED} turn="white" />)
-    expect(screen.getByRole('status').textContent).toBe('White to move')
+  // t80 §4.4: the turn line moved to StatusBar, which owns the page's only
+  // live region. The list must not carry a second one.
+  it('leaves the live region to the status bar', () => {
+    render(<MoveList moves={PAIRED} />)
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('jumps to a half-move when clicked and marks the viewed ply (T14)', () => {
     const onJump = vi.fn()
-    render(<MoveList moves={PAIRED} turn="white" viewPly={2} onJump={onJump} />)
+    render(<MoveList moves={PAIRED} viewPly={2} onJump={onJump} />)
     fireEvent.click(screen.getByRole('button', { name: 'g7 g5' }))
     expect(onJump).toHaveBeenCalledWith(2)
     expect(
