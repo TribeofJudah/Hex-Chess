@@ -702,3 +702,27 @@ Worktrees: `../HexChess-wt/<task>` on `r14/*` branches. Art direction source: `d
 - Multiplayer: remote rooms exist (code-based, no account) but are not reachable from the
   live site yet. Scope: deploy the worker (CF_DEPLOY.md), point Pages at it, lobby UX
   (create / share link / join), reconnect polish.
+- Merged R15 to dev: `0e2b735`, `f362f8d`. Gate green (279 client / 66 worker).
+
+### Round 16 result — motion (t66) · online lobby + room origin (t67)
+
+- t66 (dvv1, `r16/t66-motion`): FLIP slide, capture fade, select ring + staggered targets,
+  check pulse, promotion scale-in, theme cross-fade, button press; all off under
+  reduced motion. Fixes B1 (glyph swallowed clicks) and B2 (dark target contrast).
+  16b fix `3e90e8e`: many-ply jumps (PGN load / remote resync) snap instead of animating;
+  lobby styles.
+- t67 (dvv2, `r16/t67-lobby`): `roomConfig.ts` + `VITE_ROOM_ORIGIN`, vite `/room` dev proxy,
+  `#/online` lobby, copy-link, seat/presence, reconnect backoff + Retry now, B7.
+  16b: merged dev, `7cbaf39` shows "Connecting…" until the welcome frame (B4).
+- rvv1: CHANGES REQUESTED → 16b → APPROVE both. Merged to dev: `878980f`, `356daf2`.
+  Gate green (336 client / 66 worker). Browser check: glyph click selects, slide runs,
+  reduced motion runs none, lobby unconfigured notice, room shows "Connecting…".
+- Owner action pending: Pages workflow diff for `VITE_ROOM_ORIGIN` (dispatcher scratchpad)
+  + worker deploy with the owner's Cloudflare token.
+
+## Round 17 — UI polish (UI_REPORT §4) — 2026-10-08
+
+- t79 (dvv1, `r17/t79-board`): board size, coordinates, legend label (B6), focus box (B5),
+  contrast tokens. Owns theme.css/index.css except the layout/toolbar/status/position blocks.
+- t80 (dvv2, `r17/t80-layout`): Tools disclosure for FEN/PGN, toolbar groups, StatusBar,
+  two-column ≥1024px, hide hotseat controls in rooms (B3). New styles in `src/ui/layout.css`.
