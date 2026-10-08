@@ -52,7 +52,7 @@ describe('RemoteRoom', () => {
     const { container } = render(
       <RemoteRoom roomCode="ABCD" connect={connect} />,
     )
-    const bar = () => container.querySelector('.hxc-room__bar')!.textContent
+    const bar = () => container.querySelector('.hxc-statusbar')!.textContent
     expect(bar()).toContain('Connecting…')
 
     act(() => current().open())
@@ -86,7 +86,7 @@ describe('RemoteRoom', () => {
         expectedProtocol: 2,
       }),
     )
-    const bar = container.querySelector('.hxc-room__bar')!.textContent
+    const bar = container.querySelector('.hxc-statusbar')!.textContent
     expect(bar).toContain('Incompatible protocol version')
     expect(bar).toContain('server v2')
     expect(bar).toContain(`client v${PROTOCOL_VERSION}`)
@@ -138,15 +138,51 @@ describe('RemoteRoom', () => {
     expect(screen.queryByTestId('resign-confirm')).toBeNull()
   })
 
-  it('keeps the Resign button disabled for a spectator', () => {
+  it('hides every hotseat-only control on the online route (B3)', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'white' })))
+    for (const name of ['New game', 'Undo', 'Play online', 'Load PGN']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+    expect(screen.queryByRole('combobox', { name: 'AI depth' })).toBeNull()
+    expect(screen.queryByRole('radiogroup', { name: 'Theme' })).toBeNull()
+  })
+
+  it('offers Resign only to a seated player whose opponent is connected (B3)', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'white' })))
+    // Seated, but the peer is not here yet: nothing to resign from.
+    expect(screen.queryByRole('button', { name: 'Resign' })).toBeNull()
+    act(() =>
+      current().recv({
+        v: 1,
+        type: 'peer',
+        connected: true,
+        seats: { white: true, black: true },
+      }),
+    )
+    expect(screen.getByRole('button', { name: 'Resign' })).toBeTruthy()
+  })
+
+  it('renders no game-action group for a spectator (B3)', () => {
     const { connect, current } = makeSocketFactory()
     render(<RemoteRoom roomCode="ABCD" connect={connect} />)
     act(() => current().open())
     act(() => current().recv(welcomeMsg({ seat: 'spectator' })))
-    expect(
-      (screen.getByRole('button', { name: 'Resign' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true)
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Resign' })).toBeNull()
+  })
+
+  it('keeps one status live region, shared with the board footer (t80 §4.4)', () => {
+    const { connect, current } = makeSocketFactory()
+    render(<RemoteRoom roomCode="ABCD" connect={connect} />)
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg({ seat: 'white' })))
+    expect(screen.getAllByRole('status')).toHaveLength(1)
   })
 
   // t67: share the room and read opponent presence.
@@ -215,7 +251,7 @@ describe('RemoteRoom', () => {
     act(() => current().recv(welcomeMsg()))
     act(() => current().drop())
 
-    const bar = container.querySelector('.hxc-room__bar')!.textContent ?? ''
+    const bar = container.querySelector('.hxc-statusbar')!.textContent ?? ''
     expect(bar).toContain('Reconnecting… attempt 1')
     const retry = screen.getByTestId('retry-now')
     fireEvent.click(retry)

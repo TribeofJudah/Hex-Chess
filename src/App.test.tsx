@@ -19,6 +19,12 @@ function loadPgn(text: string) {
   fireEvent.change(input, { target: { files: [file] } })
 }
 
+/** Open the Tools disclosure (§4.2) so setup controls are reachable. */
+function openTools() {
+  const tools = screen.getByTestId('tools') as HTMLDetailsElement
+  tools.open = true
+}
+
 describe('App', () => {
   it('renders the title and board', () => {
     render(<App />)
@@ -37,10 +43,9 @@ describe('App', () => {
       expect(screen.getByTestId('move-list').textContent).toContain('f5 f6'),
     )
     expect(screen.getByTestId('move-list').textContent).toContain('e7 e5')
-    // Two plies replayed: back to White, no error. (MoveList repeats the
-    // turn text, so scope to the board's status line.)
-    const board = within(screen.getByTestId('board-section'))
-    expect(board.getByText('White to move')).toBeTruthy()
+    // Two plies replayed: back to White, no error. The turn now lives in the
+    // single status bar (§4.4), not the board footer.
+    expect(screen.getByRole('status').textContent).toBe('White to move')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
@@ -56,6 +61,7 @@ describe('App', () => {
 
   it('reaches the lobby from the Play online button (t67)', async () => {
     render(<App />)
+    openTools()
     fireEvent.click(screen.getByRole('button', { name: 'Play online' }))
     await waitFor(() =>
       expect(
@@ -83,8 +89,10 @@ describe('App', () => {
 })
 
 describe('App theme switch (t64)', () => {
-  const pick = (name: RegExp) =>
+  const pick = (name: RegExp) => {
+    openTools()
     fireEvent.click(screen.getByRole('radio', { name }))
+  }
   const pinned = () => document.documentElement.getAttribute('data-theme')
 
   it('pins data-theme, persists the choice, and clears back to system', () => {
@@ -109,11 +117,48 @@ describe('App theme switch (t64)', () => {
   it('restores a stored theme on mount', () => {
     localStorage.setItem('hexchess:theme', 'dark')
     render(<App />)
+    openTools()
     expect(
       screen
         .getByRole('radio', { name: /^dark$/i })
         .getAttribute('aria-checked'),
     ).toBe('true')
     expect(pinned()).toBe('dark')
+  })
+})
+
+describe('App layout (t80)', () => {
+  it('keeps the FEN loader behind a closed Tools disclosure (§4.2)', () => {
+    render(<App />)
+    const tools = screen.getByTestId('tools') as HTMLDetailsElement
+    expect(tools.open).toBe(false)
+    expect(
+      within(tools).getByRole('form', { name: 'Load position' }),
+    ).toBeTruthy()
+  })
+
+  it('has exactly one status live region (§4.4)', () => {
+    render(<App />)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toBe('White to move')
+  })
+
+  it('puts the board before the rail in DOM order (§4.6)', () => {
+    const { container } = render(<App />)
+    const board = container.querySelector('[data-testid="board-section"]')!
+    const rail = container.querySelector('.app__rail')!
+    // Board-first: it must precede the status/actions/moves rail.
+    expect(
+      board.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('drops the game-action group once the game is over (§4.3)', () => {
+    render(<App />)
+    expect(screen.getByRole('group', { name: 'Game actions' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    expect(screen.queryByRole('button', { name: 'Resign' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Offer draw' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
   })
 })

@@ -11,7 +11,10 @@ import { DrawOfferBanner } from './ui/DrawOfferBanner'
 import { downloadPgn, toPgn } from './ui/pgn'
 import { parsePgn, replayPgn } from './ui/pgnImport'
 import { navigate, useRoute } from './ui/router'
+import { StatusBar } from './ui/StatusBar'
 import { glinskiRules } from './rules/adapter'
+// Layout overrides last: the built sheet must come after theme.css (t80).
+import './ui/layout.css'
 
 /** Shared with the pre-paint script in index.html — change both together. */
 const THEME_KEY = 'hexchess:theme'
@@ -63,7 +66,9 @@ function HotseatGame() {
 
   const status = game.gameOver
     ? gameOverText(game.gameOver)
-    : `${game.turn === 'white' ? 'White' : 'Black'} to move`
+    : `${game.turn === 'white' ? 'White' : 'Black'} to move${
+        game.inCheckCell ? ' — check' : ''
+      }`
 
   // Offer affordances (t49): the local machine answers its own prompts —
   // hidden while the game is over or an offer is already open, and on the
@@ -80,40 +85,12 @@ function HotseatGame() {
         <p className="app__subtitle">Gliński&apos;s variant — hotseat</p>
       </header>
 
-      <ControlBar
-        theme={theme}
-        onThemeChange={setTheme}
-        onNewGame={game.newGame}
-        onUndo={game.undo}
-        undoEnabled={game.canUndo}
-        aiEnabled={game.aiEnabled}
-        onToggleAi={game.toggleAi}
-        aiDepth={game.aiDepth}
-        onAiDepthChange={game.setAiDepth}
-        onResign={game.resign}
-        onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
-        onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
-        onLoadPgn={loadPgn}
-        onCreateRoom={() => navigate({ name: 'online' })}
-      />
-
-      <PositionEditor onLoad={game.loadFen} />
-
-      {pgnError ? (
-        <p className="hxc-position__error" role="alert">
-          {pgnError}
-        </p>
-      ) : null}
-
       <div className="app__layout">
         <section
           className="app__board-container"
           data-testid="board-section"
           aria-label="Chess board"
         >
-          <p className="hxc-status" role="status">
-            {status}
-          </p>
           <HexBoard
             pieces={game.position}
             size={24}
@@ -139,12 +116,45 @@ function HotseatGame() {
             />
           ) : null}
         </section>
-        <MoveList
-          moves={game.moves}
-          turn={game.turn}
-          viewPly={game.viewPly}
-          onJump={game.jumpTo}
-        />
+
+        {/* Side rail: status, actions + tools, moves. Below 1024px it stacks
+            under the board, board first (t80 §4.4/§4.6). */}
+        <div className="app__rail">
+          <StatusBar text={status} />
+
+          <ControlBar
+            theme={theme}
+            onThemeChange={setTheme}
+            onNewGame={game.newGame}
+            onUndo={game.undo}
+            undoEnabled={game.canUndo}
+            aiEnabled={game.aiEnabled}
+            onToggleAi={game.toggleAi}
+            aiDepth={game.aiDepth}
+            onAiDepthChange={game.setAiDepth}
+            // Game actions only exist while a game is live (t80 §4.3).
+            {...(game.gameOver ? {} : { onResign: game.resign })}
+            onOfferDraw={
+              canOfferDraw ? () => game.chooseOffer('offer') : undefined
+            }
+            onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
+            onLoadPgn={loadPgn}
+            onCreateRoom={() => navigate({ name: 'online' })}
+            tools={<PositionEditor onLoad={game.loadFen} />}
+          />
+
+          {pgnError ? (
+            <p className="hxc-position__error" role="alert">
+              {pgnError}
+            </p>
+          ) : null}
+
+          <MoveList
+            moves={game.moves}
+            viewPly={game.viewPly}
+            onJump={game.jumpTo}
+          />
+        </div>
       </div>
 
       <footer className="app__footer">

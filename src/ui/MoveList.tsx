@@ -1,18 +1,16 @@
-import type { PieceColor } from './hexMath'
 import type { GameMove } from './useGame'
 import './theme.css'
 
 export interface MoveListProps {
   /** Half-moves in play order: index 0 = White's first, odd = Black's. */
   moves: GameMove[]
-  turn: PieceColor
   /** Half-move index currently shown on the board (T14); highlights it. */
   viewPly?: number
   /** Called with the 1-based half-move index to jump the board to (T14). */
   onJump?: (ply: number) => void
 }
 
-export function MoveList({ moves, turn, viewPly, onJump }: MoveListProps) {
+export function MoveList({ moves, viewPly, onJump }: MoveListProps) {
   const pairs = []
   for (let i = 0; i < moves.length; i += 2) {
     pairs.push({
@@ -58,9 +56,6 @@ export function MoveList({ moves, turn, viewPly, onJump }: MoveListProps) {
           })
         )}
       </ol>
-      <p className="hxc-movelist__turn" role="status">
-        {turn === 'white' ? 'White' : 'Black'} to move
-      </p>
     </section>
   )
 }

@@ -1,6 +1,12 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ControlBar } from './ControlBar'
+
+/** Open the Tools disclosure (§4.2) so its controls are reachable. */
+function openTools() {
+  const tools = screen.getByTestId('tools') as HTMLDetailsElement
+  tools.open = true
+}
 
 describe('ControlBar', () => {
   it('fires handlers from the pixel buttons', () => {
@@ -27,6 +33,7 @@ describe('ControlBar', () => {
     const { rerender } = render(
       <ControlBar theme="dark" onThemeChange={onThemeChange} />,
     )
+    openTools()
     expect(screen.getByRole('radiogroup', { name: 'Theme' })).toBeTruthy()
     const checked = (name: RegExp) =>
       screen.getByRole('radio', { name }).getAttribute('aria-checked')
@@ -43,12 +50,29 @@ describe('ControlBar', () => {
     expect(screen.queryByRole('radiogroup', { name: 'Theme' })).toBeNull()
   })
 
-  it('disables actions that have no handler', () => {
+  // B3 (t80): a group with no wired handler is not rendered at all. The old
+  // toolbar showed seven permanently dead buttons; dead controls read as
+  // broken ones.
+  it('renders only the groups it was given handlers for (B3)', () => {
     render(<ControlBar />)
-    const disabled = screen
-      .getAllByRole('button')
-      .filter((button) => button.hasAttribute('disabled'))
-    expect(disabled).toHaveLength(7) // New game, Undo, AI, Resign, Offer draw, Export PGN, Play online
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByRole('group', { name: 'Primary' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
+    expect(screen.queryByTestId('tools')).toBeNull()
+  })
+
+  it('keeps the Tools disclosure closed until opened (t80 §4.2)', () => {
+    const onAiDepthChange = vi.fn()
+    render(<ControlBar onAiDepthChange={onAiDepthChange} />)
+    const tools = screen.getByTestId('tools') as HTMLDetailsElement
+    expect(tools.open).toBe(false)
+    expect(within(tools).getByText('Tools')).toBeTruthy()
+  })
+
+  it('omits the game-action group when neither action is wired (B3)', () => {
+    render(<ControlBar onNewGame={() => {}} />)
+    expect(screen.getByRole('group', { name: 'Primary' })).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
   })
 
   it('fires the resign and draw handlers (T16)', () => {
@@ -64,6 +88,7 @@ describe('ControlBar', () => {
   it('changes the AI depth from the selector (T15)', () => {
     const onAiDepthChange = vi.fn()
     render(<ControlBar aiDepth={3} onAiDepthChange={onAiDepthChange} />)
+    openTools()
     const select = screen.getByRole('combobox', { name: 'AI depth' })
     expect((select as HTMLSelectElement).value).toBe('3')
     fireEvent.change(select, { target: { value: '5' } })
@@ -80,6 +105,7 @@ describe('ControlBar', () => {
         onExportPgn={onExportPgn}
       />,
     )
+    openTools()
     const ai = screen.getByRole('button', { name: 'AI on' })
     expect(ai.getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(ai)
@@ -91,6 +117,7 @@ describe('ControlBar', () => {
   it('reads a chosen .pgn file into onLoadPgn (t61)', async () => {
     const onLoadPgn = vi.fn()
     render(<ControlBar onLoadPgn={onLoadPgn} />)
+    openTools()
     const input = screen.getByTestId('pgn-file-input') as HTMLInputElement
     expect(input.accept).toBe('.pgn,text/plain')
     const file = new File(['1. f5 f6 e7 e5'], 'game.pgn', {
@@ -116,6 +143,7 @@ describe('ControlBar', () => {
     try {
       const onThemeChange = vi.fn()
       render(<ControlBar theme="dark" onThemeChange={onThemeChange} />)
+      openTools()
       fireEvent.click(screen.getByRole('radio', { name: /^light$/i }))
       // The theme lands inside the transition's callback, not beside it.
       expect(start).toHaveBeenCalledTimes(1)

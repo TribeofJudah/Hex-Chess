@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Clock } from './Clock'
 import { ControlBar } from './ControlBar'
 import { DrawOfferBanner } from './DrawOfferBanner'
-import { GameOverBanner } from './GameOverBanner'
+import { GameOverBanner, gameOverText } from './GameOverBanner'
 import { HexBoard } from './HexBoard'
 import { MoveList } from './MoveList'
 import { downloadPgn, toPgn } from './pgn'
 import { PROTOCOL_VERSION, type Seat } from './protocol'
 import { roomShareUrl } from './roomConfig'
+import { StatusBar } from './StatusBar'
 import {
   useRemoteGame,
   type ConnectFn,
@@ -43,14 +44,16 @@ const SEAT_LABEL: Record<Seat, string> = {
 export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
   const game = useRemoteGame(roomCode, connect ? { connect } : {})
   const canPlay = game.status === 'playing' || game.status === 'waiting'
-  const [scanlines, setScanlines] = useState(true)
   // Resign confirmation (t65): the button opens an inline banner (the existing
   // draw-banner pattern) rather than a window.confirm; confirming streams the
   // `resign` frame. Only a seated player in a live game may resign (the room
   // double-enforces this).
   const [confirmResign, setConfirmResign] = useState(false)
+  // B3 (t80): game actions appear only for a seated player in a live game
+  // with the opponent on the other end — nothing to resign from before then.
   const canResign =
     canPlay &&
+    game.peerConnected &&
     (game.seat === 'white' || game.seat === 'black') &&
     !game.gameOver
   // Offer affordances (t49): only the local seat's own turn, with a peer
@@ -119,7 +122,10 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
 
   let status = STATUS_LABEL[game.status]
   if (game.status === 'playing') {
-    status = `${game.turn === 'white' ? 'White' : 'Black'} to move`
+    // Result first, then the turn — same phrasing as the banner (t80 §4.4).
+    status = game.gameOver
+      ? gameOverText(game.gameOver)
+      : `${game.turn === 'white' ? 'White' : 'Black'} to move`
   } else if (game.status === 'version-mismatch') {
     status = `Incompatible protocol version — server v${game.serverProtocol ?? '?'}, client v${PROTOCOL_VERSION}`
   } else if (game.status === 'error') {
@@ -156,64 +162,13 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
           >
             Copy link
           </button>
-          <span role="status" aria-live="polite" data-testid="copy-status">
+          {/* Transient "Link copied" feedback: a polite live region, but not
+              the page's status bar (that is StatusBar's, t80). */}
+          <span aria-live="polite" data-testid="copy-status">
             {copyStatus}
           </span>
         </div>
-        <p className="app__subtitle" data-testid="seat-status">
-          {seatLine}
-          {game.seatAssigned ? ` · ${presence}` : ''}
-        </p>
       </header>
-
-      <div className="hxc-room__bar" role="status" aria-live="polite">
-        <span
-          className={`hxc-room__dot hxc-room__dot--${game.status}`}
-          aria-hidden="true"
-        />
-        <span>{status}</span>
-        {game.status === 'reconnecting' || game.status === 'offline' ? (
-          <button
-            type="button"
-            className="hxc-button"
-            data-testid="retry-now"
-            onClick={game.retryNow}
-          >
-            Retry now
-          </button>
-        ) : null}
-        <Clock
-          clock={game.clock}
-          turn={game.turn}
-          ended={game.gameOver !== null}
-        />
-        <span className="hxc-room__spacer" />
-        <button
-          type="button"
-          className="hxc-button"
-          onClick={onExit}
-          disabled={!onExit}
-        >
-          Leave
-        </button>
-      </div>
-
-      <ControlBar
-        scanlines={scanlines}
-        onToggleScanlines={() => setScanlines((on) => !on)}
-        onOfferDraw={canOfferDraw ? () => game.chooseOffer('offer') : undefined}
-        // ControlBar's `onResign` is a plain optional prop (no `| undefined`),
-        // so spread it in only when enabled (exactOptionalPropertyTypes).
-        {...(canResign ? { onResign: () => setConfirmResign(true) } : {})}
-        // t55 remote export: the room's terminal say threads into the PGN
-        // (a mirrored draw agreement exports 1/2-1/2 + annotation).
-        onExportPgn={() =>
-          downloadPgn(
-            toPgn(game.moves, game.gameOver, game.roomEndReason ?? undefined),
-            `hex-chess-${roomCode}.pgn`,
-          )
-        }
-      />
 
       <div className="app__layout">
         <section
@@ -278,12 +233,68 @@ export function RemoteRoom({ roomCode, connect, onExit }: RemoteRoomProps) {
             />
           ) : null}
         </section>
-        <MoveList
-          moves={game.moves}
-          turn={game.turn}
-          viewPly={game.viewPly}
-          onJump={game.jumpTo}
-        />
+
+        <div className="app__rail">
+          <StatusBar
+            text={status}
+            tone={game.status}
+            detail={
+              <span data-testid="seat-status">
+                {seatLine}
+                {game.seatAssigned ? ` · ${presence}` : ''}
+              </span>
+            }
+          >
+            <Clock
+              clock={game.clock}
+              turn={game.turn}
+              ended={game.gameOver !== null}
+            />
+            {game.status === 'reconnecting' || game.status === 'offline' ? (
+              <button
+                type="button"
+                className="hxc-button"
+                data-testid="retry-now"
+                onClick={game.retryNow}
+              >
+                Retry now
+              </button>
+            ) : null}
+            <span className="hxc-room__spacer" />
+            <button
+              type="button"
+              className="hxc-button"
+              onClick={onExit}
+              disabled={!onExit}
+            >
+              Leave
+            </button>
+          </StatusBar>
+
+          {/* B3 (t80): hotseat-only controls (New game, Undo, AI, depth,
+              Play online) are simply not passed, so the toolbar shows only
+              what this route can do. */}
+          <ControlBar
+            onOfferDraw={
+              canOfferDraw ? () => game.chooseOffer('offer') : undefined
+            }
+            onResign={canResign ? () => setConfirmResign(true) : undefined}
+            // t55 remote export: the room's terminal say threads into the PGN
+            // (a mirrored draw agreement exports 1/2-1/2 + annotation).
+            onExportPgn={() =>
+              downloadPgn(
+                toPgn(game.moves, game.gameOver, game.roomEndReason ?? undefined),
+                `hex-chess-${roomCode}.pgn`,
+              )
+            }
+          />
+
+          <MoveList
+            moves={game.moves}
+            viewPly={game.viewPly}
+            onJump={game.jumpTo}
+          />
+        </div>
       </div>
     </main>
   )
