@@ -16,6 +16,7 @@ import {
   type GameRules,
   type UseGameResult,
 } from './useGame'
+import { roomSocketUrl } from './roomConfig'
 
 /**
  * Remote-play session hook (T-remote-play, t39).
@@ -34,6 +35,7 @@ export type RemoteStatus =
   | 'waiting'
   | 'playing'
   | 'reconnecting'
+  | 'offline'
   | 'version-mismatch'
   | 'error'
   | 'closed'
@@ -52,7 +54,7 @@ export type ConnectFn = (url: string) => SocketLike
 export interface UseRemoteGameOptions {
   /** Socket factory (default: `new WebSocket(url)`). */
   connect?: ConnectFn
-  /** Room URL builder (default: same-origin `/room/<CODE>`). */
+  /** Room URL builder (default: `roomSocketUrl` — VITE_ROOM_ORIGIN or same-host). */
   urlFor?: (roomCode: string) => string
   /** First reconnect backoff step, ms (doubles up to `reconnectMaxMs`). */
   reconnectBaseMs?: number
@@ -65,8 +67,22 @@ export interface UseRemoteGameOptions {
 export interface UseRemoteGameResult extends UseGameResult {
   roomCode: string
   seat: Seat
+  /** False until the welcome frame lands: `seat` is 'spectator' by default,
+      so consumers must not render it as a real assignment before then (B4). */
+  seatAssigned: boolean
   status: RemoteStatus
   peerConnected: boolean
+  /** Sticky companion to `peerConnected`: true once an opponent has sat
+      down, so a later disconnect reads as "opponent disconnected" (t67). */
+  hasPeerEver: boolean
+  /** Attempts made so far in the current reconnect run (0 when settled). */
+  reconnectAttempt: number
+  /** Epoch ms when the pending reconnect will fire, while one is scheduled. */
+  nextRetryAt?: number
+  /** Whether the browser reports a network connection (t67). */
+  online: boolean
+  /** Retry the connection immediately, resetting the backoff (t67). */
+  retryNow: () => void
   /** Server protocol version, present when `status === 'version-mismatch'`. */
   serverProtocol?: number
   error?: string
@@ -91,11 +107,6 @@ export interface UseRemoteGameResult extends UseGameResult {
 const RECONNECT_BASE_MS = 250
 const RECONNECT_MAX_MS = 10_000
 
-function defaultUrl(roomCode: string): string {
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}/room/${roomCode}`
-}
-
 function defaultConnect(url: string): SocketLike {
   return new WebSocket(url) as unknown as SocketLike
 }
@@ -119,7 +130,7 @@ export function useRemoteGame(
 ): UseRemoteGameResult {
   const {
     connect = defaultConnect,
-    urlFor = defaultUrl,
+    urlFor = roomSocketUrl,
     reconnectBaseMs = RECONNECT_BASE_MS,
     reconnectMaxMs = RECONNECT_MAX_MS,
     rules = glinskiRules,
@@ -128,12 +139,25 @@ export function useRemoteGame(
   const game = useGame(rules)
   const [status, setStatus] = useState<RemoteStatus>('connecting')
   const [seat, setSeat] = useState<Seat>('spectator')
+  // B4 (t67): `seat` starts as 'spectator' before the welcome frame, so the
+  // UI cannot tell "not assigned yet" from "server seated us as a spectator".
+  const [seatAssigned, setSeatAssigned] = useState(false)
   const [peerConnected, setPeerConnected] = useState(false)
+  // Sticky: once an opponent sat down, a later disconnect reads as
+  // "opponent disconnected" rather than "waiting for opponent" (t67).
+  const [hasPeerEver, setHasPeerEver] = useState(false)
   const [serverProtocol, setServerProtocol] = useState<number | undefined>()
   const [error, setError] = useState<string | undefined>()
   // Server-authoritative clock (t56). Initialised from `welcome.clock` and
   // replaced by every `clock` frame; absent until the first frame lands.
   const [clock, setClock] = useState<ClockWire | undefined>()
+  // Reconnect UX (t67): attempts + the scheduled retry time, surfaced so the
+  // status line can show "attempt n, next try in Xs" and a manual retry.
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
+  const [nextRetryAt, setNextRetryAt] = useState<number | undefined>()
+  const [online, setOnline] = useState(
+    () => typeof navigator === 'undefined' || navigator.onLine,
+  )
 
   // Latest game, read from socket callbacks — assigned in an effect, not render.
   const gameRef = useRef(game)
@@ -146,6 +170,17 @@ export function useRemoteGame(
   const closedByUsRef = useRef(false)
   const mismatchRef = useRef(false)
   const attemptRef = useRef(0)
+  // Reconnect plumbing (t67): the pending timer and a handle to the effect's
+  // immediate-retry, both reachable from the online/offline listeners.
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  )
+  const retryNowRef = useRef<(() => void) | null>(null)
+  // Mirror of `status` for the event listeners (they read it synchronously).
+  const statusRef = useRef<RemoteStatus>('connecting')
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
   // Stable per-session id so a reconnect reclaims the same seat.
   const [clientId] = useState(() => options.clientId ?? randomClientId())
 
@@ -199,7 +234,12 @@ export function useRemoteGame(
     attemptRef.current = 0
     revisionRef.current = 0
     lastSentRef.current = 0
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+    const clearTimer = () => {
+      if (reconnectTimerRef.current !== undefined) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = undefined
+      }
+    }
 
     const handle = (raw: string) => {
       const msg = decode(raw)
@@ -215,8 +255,11 @@ export function useRemoteGame(
             return
           }
           attemptRef.current = 0
+          setReconnectAttempt(0)
+          setNextRetryAt(undefined)
           revisionRef.current = msg.revision
           setSeat(msg.seat)
+          setSeatAssigned(true)
           rebuild(msg.moves)
           // t56: welcome may carry the clock snapshot (present when the room
           // already had one created; absent on a v1 server). Mirror it.
@@ -247,6 +290,7 @@ export function useRemoteGame(
         case 'peer': {
           const both = msg.seats.white && msg.seats.black
           setPeerConnected(both)
+          if (both) setHasPeerEver(true)
           setStatus((s) =>
             s === 'version-mismatch' || s === 'error'
               ? s
@@ -306,7 +350,24 @@ export function useRemoteGame(
       }
     }
 
+    /** Back off (exponential, capped) and schedule a reconnect attempt. */
+    const scheduleRetry = () => {
+      setStatus('reconnecting')
+      const step = Math.min(
+        reconnectMaxMs,
+        reconnectBaseMs * 2 ** attemptRef.current,
+      )
+      const delay = step / 2 + Math.random() * (step / 2)
+      attemptRef.current += 1
+      setReconnectAttempt(attemptRef.current)
+      setNextRetryAt(Date.now() + delay)
+      clearTimer()
+      reconnectTimerRef.current = setTimeout(open, delay)
+    }
+
     const open = () => {
+      clearTimer()
+      setNextRetryAt(undefined)
       const sock = connect(urlFor(roomCode))
       socketRef.current = sock
       sock.onopen = () => {
@@ -327,26 +388,57 @@ export function useRemoteGame(
           setStatus((s) => (s === 'version-mismatch' ? s : 'closed'))
           return
         }
+        // A dead network: don't spin against a wall — show offline and wait
+        // for the `online` event, which resumes via retryNow.
+        if (!navigator.onLine) {
+          setStatus('offline')
+          return
+        }
         // Unexpected drop: back off and retry, reclaiming the seat.
-        setStatus('reconnecting')
-        const step = Math.min(
-          reconnectMaxMs,
-          reconnectBaseMs * 2 ** attemptRef.current,
-        )
-        const delay = step / 2 + Math.random() * (step / 2)
-        attemptRef.current += 1
-        reconnectTimer = setTimeout(open, delay)
+        scheduleRetry()
       }
       sock.onerror = () => {
         // onclose follows; nothing extra here.
       }
     }
 
+    /** Retry immediately, resetting the backoff (manual "Retry now"). */
+    const retryNow = () => {
+      clearTimer()
+      attemptRef.current = 0
+      setReconnectAttempt(0)
+      setNextRetryAt(undefined)
+      setStatus('connecting')
+      open()
+    }
+    retryNowRef.current = retryNow
+
+    const onOffline = () => {
+      setOnline(false)
+      clearTimer()
+      setNextRetryAt(undefined)
+      if (
+        statusRef.current !== 'closed' &&
+        statusRef.current !== 'version-mismatch'
+      ) {
+        setStatus('offline')
+      }
+    }
+    const onOnline = () => {
+      setOnline(true)
+      if (statusRef.current === 'offline') retryNow()
+    }
+    window.addEventListener('offline', onOffline)
+    window.addEventListener('online', onOnline)
+
     open()
 
     return () => {
       closedByUsRef.current = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
+      clearTimer()
+      retryNowRef.current = null
+      window.removeEventListener('offline', onOffline)
+      window.removeEventListener('online', onOnline)
       socketRef.current?.close()
       socketRef.current = null
     }
@@ -399,12 +491,23 @@ export function useRemoteGame(
     setStatus('closed')
   }, [])
 
+  /** Retry the connection now, resetting the backoff (t67). */
+  const retryNow = useCallback(() => {
+    retryNowRef.current?.()
+  }, [])
+
   return {
     ...game,
     roomCode,
     seat,
+    seatAssigned,
     status,
     peerConnected,
+    hasPeerEver,
+    reconnectAttempt,
+    online,
+    ...(nextRetryAt !== undefined ? { nextRetryAt } : {}),
+    retryNow,
     ...(serverProtocol !== undefined ? { serverProtocol } : {}),
     ...(error !== undefined ? { error } : {}),
     ...(clock !== undefined ? { clock } : {}),

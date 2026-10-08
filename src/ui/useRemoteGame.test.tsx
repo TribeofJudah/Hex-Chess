@@ -555,3 +555,76 @@ describe('useRemoteGame draw agreement (t49)', () => {
     expect(result.current.error).toBeUndefined()
   })
 })
+
+describe('useRemoteGame room origin + reconnect UX (t67)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it('dials the configured room origin from VITE_ROOM_ORIGIN', () => {
+    vi.stubEnv('VITE_ROOM_ORIGIN', 'https://rooms.example.workers.dev')
+    const { connect, sockets } = makeSocketFactory()
+    renderHook(() => useRemoteGame('abcd', { connect }))
+    expect(sockets[0]!.url).toBe('wss://rooms.example.workers.dev/room/ABCD')
+  })
+
+  it('exposes reconnect attempt + next retry and retries on demand', () => {
+    vi.useFakeTimers()
+    const { connect, sockets, current } = makeSocketFactory()
+    const { result } = renderHook(() =>
+      useRemoteGame('ABCD', {
+        connect,
+        reconnectBaseMs: 100,
+        reconnectMaxMs: 1000,
+      }),
+    )
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+
+    act(() => current().drop())
+    expect(result.current.status).toBe('reconnecting')
+    expect(result.current.reconnectAttempt).toBe(1)
+    expect(result.current.nextRetryAt).toBeGreaterThan(0)
+
+    act(() => result.current.retryNow())
+    expect(result.current.reconnectAttempt).toBe(0)
+    expect(result.current.nextRetryAt).toBeUndefined()
+    expect(sockets).toHaveLength(2)
+
+    act(() => current().open())
+    expect(result.current.status).toBe('waiting')
+    vi.useRealTimers()
+  })
+
+  it('goes offline with no network and resumes when the browser reconnects', () => {
+    vi.useFakeTimers()
+    const onLine = vi
+      .spyOn(window.navigator, 'onLine', 'get')
+      .mockReturnValue(false)
+    const { connect, sockets, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+
+    act(() => window.dispatchEvent(new Event('offline')))
+    expect(result.current.status).toBe('offline')
+    expect(result.current.online).toBe(false)
+
+    onLine.mockReturnValue(true)
+    act(() => window.dispatchEvent(new Event('online')))
+    expect(result.current.online).toBe(true)
+    expect(sockets.length).toBeGreaterThanOrEqual(2)
+    vi.useRealTimers()
+  })
+
+  it('treats a drop with no network as offline, not reconnecting', () => {
+    vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false)
+    const { connect, current } = makeSocketFactory()
+    const { result } = renderHook(() => useRemoteGame('ABCD', { connect }))
+    act(() => current().open())
+    act(() => current().recv(welcomeMsg()))
+    act(() => current().drop())
+    expect(result.current.status).toBe('offline')
+  })
+})

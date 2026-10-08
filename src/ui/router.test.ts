@@ -28,16 +28,27 @@ describe('parseRoute', () => {
     expect(parseRoute('#/play/abcdefghi')).toEqual({ name: 'game' })
     expect(parseRoute('#/play/ab-4')).toEqual({ name: 'game' })
   })
+
+  it('routes #/online to the lobby (t67)', () => {
+    expect(parseRoute('#/online')).toEqual({ name: 'online' })
+    expect(parseRoute('#/online/')).toEqual({ name: 'online' })
+    expect(parseRoute('#/ONLINE')).toEqual({ name: 'online' })
+  })
 })
 
 describe('routeToHash', () => {
   it('round-trips each route through parseRoute', () => {
     for (const route of [
       { name: 'game' } as const,
+      { name: 'online' } as const,
       { name: 'play', roomCode: 'XY29' } as const,
     ]) {
       expect(parseRoute(routeToHash(route))).toEqual(route)
     }
+  })
+
+  it('maps the online route to its hash (t67)', () => {
+    expect(routeToHash({ name: 'online' })).toBe('#/online')
   })
 })
 

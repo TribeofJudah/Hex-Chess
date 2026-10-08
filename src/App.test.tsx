@@ -5,8 +5,12 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import App from './App'
+
+afterEach(() => {
+  window.location.hash = ''
+})
 
 /** Feed text through the ControlBar's hidden PGN file input. */
 function loadPgn(text: string) {
@@ -48,6 +52,33 @@ describe('App', () => {
     expect(alert.textContent).toContain('f7 f6')
     // The failed import left the game untouched.
     expect(screen.getByTestId('move-list').textContent).toContain('no moves yet')
+  })
+
+  it('reaches the lobby from the Play online button (t67)', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play online' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Create room' }),
+      ).toBeTruthy(),
+    )
+  })
+
+  it('renders the lobby at #/online (t67)', () => {
+    window.location.hash = '#/online'
+    render(<App />)
+    expect(screen.getByRole('button', { name: 'Create room' })).toBeTruthy()
+  })
+
+  it('phrases resignation once, matching the banner (t67 rvv1)', () => {
+    // Hotseat: White resigns, Black wins → the shared phrasing names the
+    // resigner. The status line and the banner must agree.
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    expect(document.querySelector('.hxc-status')?.textContent).toBe(
+      'White resigned',
+    )
+    expect(screen.getByTestId('banner-text').textContent).toBe('White resigned')
   })
 })
 

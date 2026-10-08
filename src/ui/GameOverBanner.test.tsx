@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { GameOverBanner } from './GameOverBanner'
+import { GameOverBanner, gameOverText } from './GameOverBanner'
 import type { GameOver } from './useGame'
 
 describe('GameOverBanner', () => {
@@ -22,6 +22,20 @@ describe('GameOverBanner', () => {
   it.each(cases)('announces %s', (gameOver, text) => {
     render(<GameOverBanner gameOver={gameOver} onPlayAgain={() => {}} />)
     expect(screen.getByRole('alert').textContent).toMatch(text)
+  })
+
+  // t67 (rvv1): the phrasing is exported so the hotseat status line renders
+  // the same words as the banner — one source, no drift.
+  it('exports the shared phrasing', () => {
+    expect(gameOverText({ kind: 'resign', winner: 'white' })).toBe(
+      'Black resigned',
+    )
+    expect(gameOverText({ kind: 'resign', winner: 'black' })).toBe(
+      'White resigned',
+    )
+    expect(gameOverText({ kind: 'checkmate', winner: 'black' })).toBe(
+      'Checkmate — black wins',
+    )
   })
 
   it('plays again on demand', () => {

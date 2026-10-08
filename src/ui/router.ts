@@ -8,11 +8,16 @@ import { useEffect, useState } from 'react'
  * `/play/ABCD` 404 on reload with no server rewrite. `#/play/ABCD` works
  * everywhere.
  */
-export type Route = { name: 'game' } | { name: 'play'; roomCode: string }
+export type Route =
+  | { name: 'game' }
+  | { name: 'online' }
+  | { name: 'play'; roomCode: string }
 
 const PLAY_RE = /^#\/play\/([a-z0-9]{4,8})\/?$/i
+const ONLINE_RE = /^#\/online\/?$/i
 
 export function parseRoute(hash: string): Route {
+  if (ONLINE_RE.test(hash)) return { name: 'online' }
   const code = PLAY_RE.exec(hash)?.[1]
   return code
     ? { name: 'play', roomCode: code.toUpperCase() }
@@ -20,7 +25,14 @@ export function parseRoute(hash: string): Route {
 }
 
 export function routeToHash(route: Route): string {
-  return route.name === 'play' ? `#/play/${route.roomCode}` : '#/'
+  switch (route.name) {
+    case 'online':
+      return '#/online'
+    case 'play':
+      return `#/play/${route.roomCode}`
+    case 'game':
+      return '#/'
+  }
 }
 
 /** Imperatively navigate (sets the hash; fires hashchange). */
