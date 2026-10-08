@@ -9,13 +9,15 @@ import {
 import { axialDistance, isValidCell } from '../board/axial'
 import { axialToNotation, notationToAxial } from '../board/notation'
 import {
+  BOARD_RADIUS,
+  FILES,
   allCells,
+  boardBounds,
   cellCorners,
   cellCenter,
   cellPoints,
   cellToFileRank,
   fileRankToCell,
-  viewBox,
   type PieceColor,
   type PieceKind,
 } from './hexMath'
@@ -329,7 +331,7 @@ export function HexBoard({
     >
       <svg
         className="hxc-svg"
-        viewBox={viewBox(size)}
+        viewBox={boardViewBox(size)}
         role="img"
         aria-label={`Hexagonal chess board, ${NOTATIONS.size} cells, ${Object.keys(pieces).length} pieces placed`}
       >
@@ -405,6 +407,7 @@ export function HexBoard({
             />
           ))}
         </g>
+        <Coordinates size={size} />
       </svg>
       {promotion ? (
         <PromotionBanner
@@ -416,6 +419,82 @@ export function HexBoard({
       ) : null}
       {legend ? <PieceLegend /> : null}
     </div>
+  )
+}
+
+/**
+ * The board's bounding box grown by the coordinate gutters.
+ *
+ * The margin is asymmetric on purpose: rank numbers hang off the left edge and
+ * file letters off the bottom, so those two sides get room and the other two
+ * keep `boardBounds`' own 2px stroke padding.
+ */
+function boardViewBox(size: number): string {
+  const { width, height, origin } = boardBounds(size)
+  const padX = size * COORD_PAD_X
+  const padBottom = size * COORD_PAD_BOTTOM
+  return `${origin.x - padX} ${origin.y} ${width + padX} ${height + padBottom}`
+}
+
+/** Room for a two-digit rank number plus its gap, in multiples of `size`. */
+const COORD_PAD_X = 1.1
+/** Room for a file letter below the deepest cell of rank 1 (f1). Measured: the
+    letter's own box reaches 0.83·size past the board's edge. */
+const COORD_PAD_BOTTOM = 1.05
+const COORD_FONT = 0.45
+const COORD_GAP = 0.35
+
+/**
+ * File letters along the bottom edge, rank numbers down the left.
+ *
+ * The board has no orientation prop and nothing above it flips the view, so
+ * these are drawn for the white side and only for the white side. `aria-hidden`
+ * because the cells already announce their own notation — reading "a, b, c…"
+ * between "cell a1" and "cell a2" is noise, not information.
+ */
+function Coordinates({ size }: { size: number }) {
+  const left = boardBounds(size).origin.x - size * COORD_GAP
+  const ranks = Array.from({ length: 2 * BOARD_RADIUS + 1 }, (_, i) => i + 1)
+  return (
+    <g className="hxc-coords" aria-hidden="true" fontSize={size * COORD_FONT}>
+      {FILES.split('').map((file) => {
+        const center = cellCenter(fileRankToCell(file, 1), size)
+        return (
+          <text
+            key={file}
+            x={center.x}
+            y={-center.y + (Math.sqrt(3) / 2) * size + size * COORD_GAP}
+            textAnchor="middle"
+            dominantBaseline="hanging"
+          >
+            {file}
+          </text>
+        )
+      })}
+      {ranks.map((rank) => {
+        // The leftmost cell of a rank: file a for ranks 1-6, then b, c, d, e, f
+        // as the hexagon's left edge steps inward one file per rank.
+        const q =
+          rank <= BOARD_RADIUS + 1
+            ? -BOARD_RADIUS
+            : rank - (2 * BOARD_RADIUS + 1)
+        const center = cellCenter(
+          fileRankToCell(FILES[q + BOARD_RADIUS]!, rank),
+          size,
+        )
+        return (
+          <text
+            key={rank}
+            x={left}
+            y={-center.y}
+            textAnchor="end"
+            dominantBaseline="middle"
+          >
+            {rank}
+          </text>
+        )
+      })}
+    </g>
   )
 }
 

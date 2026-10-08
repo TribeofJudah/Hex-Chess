@@ -514,3 +514,143 @@ describe('theme.css lobby (t66b)', () => {
     expect(declares('.hxc-room__code', 'letter-spacing:var(--track-label)')).toBe(true)
   })
 })
+
+/* --- Board polish (R17 / t79) ----------------------------------------------
+   The board is the page's hero and its only interactive surface: it carries
+   coordinate gutters, a captioned legend, focus that shows a hexagon instead
+   of a box, and state strokes that clear the 3:1 a non-text indicator owes.
+   js-dom does no layout and no colour, so the geometry is checked against
+   `cellCenter` and the contrast against the WCAG formula directly. */
+
+const INDEX_CSS: string = readFileSync('src/index.css', 'utf8')
+
+/** WCAG 2.x relative luminance of an opaque `#rrggbb`. */
+function luminance(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((at) => {
+    const c = parseInt(hex.slice(at, at + 2), 16) / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }) as [number, number, number]
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [
+    number,
+    number,
+  ]
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe('HexBoard board polish (t79)', () => {
+  it('rules the board with a coordinate gutter, hidden from the a11y tree', () => {
+    const { container } = render(<HexBoard legend={false} />)
+    const coords = container.querySelector('.hxc-coords')
+    expect(coords?.getAttribute('aria-hidden')).toBe('true')
+    // Eleven files — 'j' is not a file in Gliński's — and eleven ranks.
+    expect(
+      [...(coords?.querySelectorAll('text') ?? [])].map((t) => t.textContent),
+    ).toEqual([
+      ...'abcdefghikl',
+      ...Array.from({ length: 11 }, (_, i) => `${i + 1}`),
+    ])
+  })
+
+  it('anchors each coordinate to its own file and rank', () => {
+    const { container } = render(<HexBoard size={24} legend={false} />)
+    const at = (text: string) =>
+      [...container.querySelectorAll('.hxc-coords text')].find(
+        (node) => node.textContent === text,
+      )
+    const attr = (text: string, name: string) => at(text)?.getAttribute(name)
+    const centre = (notation: string) =>
+      cellCenter(
+        fileRankToCell(notation.slice(0, 1), Number(notation.slice(1))),
+        24,
+      )
+    // Letters sit on the file's own bottom cell, left edge to right.
+    expect(attr('a', 'x')).toBe(String(centre('a1').x))
+    expect(attr('f', 'x')).toBe(String(centre('f1').x))
+    expect(attr('l', 'x')).toBe(String(centre('l1').x))
+    // Numbers sit on the rank's own leftmost cell, outboard of the board.
+    expect(attr('1', 'y')).toBe(String(-centre('a1').y))
+    expect(attr('6', 'y')).toBe(String(-centre('a6').y))
+    expect(attr('11', 'y')).toBe(String(-centre('f11').y))
+    expect(Number(attr('11', 'x'))).toBeLessThan(-8.5 * 24)
+  })
+
+  it('captions the legend and keeps its twelve glyphs the only images (B6)', () => {
+    render(<HexBoard />)
+    const caption = screen
+      .getByTestId('piece-legend')
+      .querySelector('.hxc-legend__label')
+    expect(caption?.textContent).toBe('Pieces')
+    // Decoration, not content: the caption stays out of the a11y tree.
+    expect(caption?.getAttribute('aria-hidden')).toBe('true')
+    expect(screen.getAllByRole('img', { name: /^(white|black) / })).toHaveLength(
+      12,
+    )
+  })
+
+  it('draws the hex focus ring for :focus-visible only, never a box (B5)', () => {
+    // The UA outline rings the polygon's bounding *box* — the faint square that
+    // shows over a cell after a click — and it shows for `:focus`, which a
+    // mouse click also sets. Suppressed on the plain state; the hexagon rides
+    // the `:focus-visible` stroke, so Tab still shows it.
+    expect(declares('.hxc-cell[tabindex]', 'outline:none')).toBe(true)
+    expect(declares('.hxc-cell[tabindex]', 'stroke:var(--cobalt)')).toBe(false)
+    expect(declares('.hxc-cell[tabindex]', 'stroke-dasharray')).toBe(false)
+    expect(declares('.hxc-cell[tabindex]:focus-visible', 'outline:none')).toBe(
+      true,
+    )
+    expect(
+      declares('.hxc-cell[tabindex]:focus-visible', 'stroke:var(--cobalt)'),
+    ).toBe(true)
+  })
+
+  it('keeps every board state stroke at 3:1 on every cell it crosses (t79)', () => {
+    const cells = { light: '#f3e9d6', mid: '#e9b98f', dark: '#b9b2a6' }
+    const strokes = {
+      '--cobalt': '#2a56bd',
+      '--last-move': '#9e3f16',
+      '--check': '#a92c24',
+    }
+    for (const [token, value] of Object.entries(strokes)) {
+      for (const [cell, fill] of Object.entries(cells)) {
+        expect(
+          contrast(value, fill),
+          `${token} on the ${cell} cell`,
+        ).toBeGreaterThanOrEqual(3)
+      }
+    }
+    // …and those are the values the sheets ship, wired to the cell states.
+    expect(INDEX_CSS).toContain(`--cobalt: ${strokes['--cobalt']}`)
+    expect(THEME_CSS).toContain(`--last-move: ${strokes['--last-move']}`)
+    expect(THEME_CSS).toContain(`--check: ${strokes['--check']}`)
+    expect(declares('.hxc-cell--last', 'stroke:var(--last-move)')).toBe(true)
+    expect(declares('.hxc-cell--check', 'stroke:var(--check)')).toBe(true)
+    // Dark is monochrome: both strokes fall back to the brand pair, which is
+    // the cream line there. Once in the media query, once in the override.
+    expect(THEME_CSS.match(/--last-move: var\(--orange\)/g)).toHaveLength(2)
+    expect(THEME_CSS.match(/--check: var\(--alert\)/g)).toHaveLength(2)
+  })
+
+  it('sizes the board as the hero and keeps the legend on one line', () => {
+    expect(declares('.hxc-svg', 'width:min(92vw,72vh,760px)')).toBe(true)
+    expect(declares('.hxc-svg', 'max-width:100%')).toBe(true)
+    expect(declares('.hxc-wrapper', 'width:calc(100vw-16px)')).toBe(true)
+    expect(declares('.hxc-wrapper', 'box-sizing:border-box')).toBe(true)
+    // The strip, not the page, is what gives — and the legend must not set the
+    // frame's own width, or the board sits in a band of empty paper.
+    expect(declares('.hxc-legend__strip', 'overflow-x:auto')).toBe(true)
+    expect(declares('.hxc-legend__strip', 'min-width:0')).toBe(true)
+    expect(declares('.hxc-legend', 'contain:inline-size')).toBe(true)
+    expect(declares('.hxc-legend', 'border-top:1.5pxsolidvar(--cell-border)')).toBe(
+      true,
+    )
+    // The browser makes a scroll container keyboard-focusable; a UA box over
+    // the strip is the same defect as one over a cell (B5).
+    expect(
+      declares('.hxc-legend__strip:focus-visible', 'outline:2pxsolidvar(--cobalt)'),
+    ).toBe(true)
+  })
+})

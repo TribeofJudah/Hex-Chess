@@ -27,7 +27,10 @@
   --ink-dim: rgb(31 28 25 / 68%);
   --terracotta: #c4532f;
   --orange: #e8622c;
-  --cobalt: #2f5fd0;
+  /* The old #2f5fd0 measured 2.7:1 against the board's warm-grey cell, under
+     the 3:1 a selected border or a focus ring owes; darkened until it clears
+     that cell (3.2:1) and everything else it is used on. */
+  --cobalt: #2a56bd;
   --mustard: #f0a81c;
 
   /* Texture: a thin printed grid over the paper, and a grain overlay. */
