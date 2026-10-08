@@ -726,3 +726,20 @@ Worktrees: `../HexChess-wt/<task>` on `r14/*` branches. Art direction source: `d
   contrast tokens. Owns theme.css/index.css except the layout/toolbar/status/position blocks.
 - t80 (dvv2, `r17/t80-layout`): Tools disclosure for FEN/PGN, toolbar groups, StatusBar,
   two-column ≥1024px, hide hotseat controls in rooms (B3). New styles in `src/ui/layout.css`.
+
+### Round 17 result
+
+- t79 `8d1f217`, t80 `e8863af`: rvv1 APPROVE both (LOW: room status dot tone after game
+  over → carried into t81). Merged: `87623e1`, `0421643`. Gate green (355 tests).
+- Dispatcher browser check: board-first on mobile, rail on desktop, coordinates, tray strip.
+  Found: B5 root cause is HexBoard's roving-focus effect focusing f6 on mount
+  (`HexBoard.tsx:304-309`); desktop board taller than 900px viewport. Both → t81.
+
+## Round 18 — 2026-10-08
+
+- t81 (dvv1, `r18/t81-board-rematch`): B5 mount focus, board fits viewport height, cell
+  labels with occupant, captured tray with material delta, online rematch (protocol v5,
+  worker + DO tests, ROOM_PROTO.md), R17 LOW.
+- t82 (dvv2, `r18/t82-home-review`): home screen (`#/`, `#/local`, `#/local/ai`),
+  hotseat game review (move click, ←/→, Home/End, back to live), move announcements via
+  the StatusBar live region.
