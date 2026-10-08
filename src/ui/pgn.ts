@@ -88,7 +88,7 @@ export function toPgn(
       ? '1/2-1/2'
       : pgnResult(gameOver ?? null)
   const lines = [
-    '[Event "Hex Chess"]',
+    '[Event "Xchess"]',
     '[Variant "Glinski"]',
     `[Date "${date.toISOString().slice(0, 10).replace(/-/g, '.')}"]`,
     `[Result "${result}"]`,

@@ -1,13 +1,13 @@
-# Hex Chess (Gliński's Variant)
+# Xchess (Gliński's Variant)
 
-> A print-poster styled implementation of **Gliński's Hexagonal Chess** built with **Vite**, **React 19**, and **TypeScript**.
+> A print-poster styled implementation of **Gliński's Hexagonal Chess** — and an LLM reasoning-research bench — built with **Vite**, **React 19**, and **TypeScript**.
 
 🌐 **Live Demo:** [https://tribeofjudah.github.io/Hex-Chess/](https://tribeofjudah.github.io/Hex-Chess/)  
 📖 **Rules Reference:** [Wikipedia: Gliński's Hexagonal Chess](https://en.wikipedia.org/wiki/Hexagonal_chess#Gli%C5%84ski's_hexagonal_chess)
 
 ## About
 
-Rules, current standing, features, technical structure, aesthetic and roadmap are collected in the [Hex Chess Field Guide](http://127.0.0.1:49707/review?artifact=art_c3d64623-2e01-4d25-837f-8dd3880dd2df&project=prj_default&version=ver_5cf198ce-1997-41ec-a900-9770c93a4a81&view=focus).
+Rules, current standing, features, technical structure, aesthetic and roadmap are collected in the [Xchess Field Guide](http://127.0.0.1:49707/review?artifact=art_c3d64623-2e01-4d25-837f-8dd3880dd2df&project=prj_default&version=ver_5cf198ce-1997-41ec-a900-9770c93a4a81&view=focus).
 
 ---
 

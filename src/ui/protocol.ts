@@ -1,5 +1,5 @@
 /**
- * Wire types for the HexChess multiplayer room. Mirrors `worker/src/protocol.ts`
+ * Wire types for the Xchess multiplayer room. Mirrors `worker/src/protocol.ts`
  * (t48 adds the draw frames; t56 adds the clock frames and bumps
  * `PROTOCOL_VERSION` to 2; R12 adds the server-side terminal reasons
  * `checkmate` / `stalemate` / `draw50` / `repetition` and bumps

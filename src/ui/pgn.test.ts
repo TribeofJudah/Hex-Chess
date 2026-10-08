@@ -56,7 +56,7 @@ describe('pgn', () => {
     )
     expect(text).toBe(
       [
-        '[Event "Hex Chess"]',
+        '[Event "Xchess"]',
         '[Variant "Glinski"]',
         '[Date "2026.10.01"]',
         '[Result "1-0"]',

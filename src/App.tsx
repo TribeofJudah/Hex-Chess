@@ -81,7 +81,7 @@ function HotseatGame() {
   return (
     <main className="app">
       <header className="app__header">
-        <h1 className="app__title">HEX CHESS</h1>
+        <h1 className="app__title">XCHESS</h1>
         <p className="app__subtitle">Gliński&apos;s variant — hotseat</p>
       </header>
 
