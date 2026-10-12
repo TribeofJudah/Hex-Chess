@@ -14,6 +14,11 @@ import {
   type LegalMove,
 } from './adapter'
 
+/** An agent that reports cumulative tokens spent across all its calls. */
+export interface MeteredAgent extends Agent {
+  readonly tokensUsed: number
+}
+
 export interface MatchConfig {
   seed: number
   white: Agent
@@ -25,12 +30,21 @@ export interface MatchConfig {
    * 0 = the first illegal move ends the game.
    */
   maxRetries?: number
+  /**
+   * Token budget for the whole game, summed over every attempt of both
+   * agents. Charged only by agents that expose `tokensUsed`. Exceeding it
+   * ends the game 'token-cap'; the over-budget attempt is not applied.
+   */
+  tokenCap?: number
   gameId?: string
 }
 
 export interface GameOver {
   over: boolean
-  /** checkmate | stalemate | draw50 | repetition | illegal | max-plies | null while live. */
+  /**
+   * checkmate | stalemate | draw50 | repetition | illegal | max-plies |
+   * token-cap | null while live.
+   */
   result: string | null
   winner: 'w' | 'b' | null
 }
@@ -76,10 +90,12 @@ export async function runMatch(
   const rng = mulberry32(config.seed)
   const maxPlies = config.maxPlies ?? 400
   const maxRetries = config.maxRetries ?? 0
+  const tokenCap = config.tokenCap ?? Infinity
   const gameId = config.gameId ?? `g${config.seed}`
   const plies: PlyRecord[] = []
   const history: string[] = []
   let state: GameState = initialGame()
+  let tokens = 0
 
   const emit = (record: PlyRecord) => {
     plies.push(record)
@@ -113,33 +129,35 @@ export async function runMatch(
     })
 
     const rejected: string[] = []
-    let retry = 0
-    let response = await agent.decide({
-      state,
-      legal,
-      history,
-      rng,
-      retry,
-      rejected,
-    })
-    let chosen = legal.find((m) => m.text === response.move)
-    while (!chosen && retry < maxRetries) {
-      rejected.push(response.move)
-      emit(line(response, undefined, retry, LIVE))
-      retry++
-      response = await agent.decide({
+    const ask = async (attempt: number) => {
+      const before = meter(agent)
+      const response = await agent.decide({
         state,
         legal,
         history,
         rng,
-        retry,
+        retry: attempt,
         rejected,
       })
+      tokens += meter(agent) - before
+      return response
+    }
+
+    let retry = 0
+    let response = await ask(retry)
+    let chosen = legal.find((m) => m.text === response.move)
+    while (!chosen && tokens <= tokenCap && retry < maxRetries) {
+      rejected.push(response.move)
+      emit(line(response, undefined, retry, LIVE))
+      retry++
+      response = await ask(retry)
       chosen = legal.find((m) => m.text === response.move)
     }
 
     let game: GameOver = LIVE
-    if (!chosen) {
+    if (tokens > tokenCap) {
+      game = { over: true, result: 'token-cap', winner: null }
+    } else if (!chosen) {
       game = { over: true, result: 'illegal', winner: other(side) }
     } else {
       state = applyMove(state, chosen.move)
@@ -163,6 +181,10 @@ export async function runMatch(
 /** One line per attempt, newline-terminated. */
 export function toJsonl(plies: readonly PlyRecord[]): string {
   return plies.map((p) => JSON.stringify(p) + '\n').join('')
+}
+
+function meter(agent: Agent): number {
+  return (agent as Partial<MeteredAgent>).tokensUsed ?? 0
 }
 
 function other(side: 'w' | 'b'): 'w' | 'b' {
