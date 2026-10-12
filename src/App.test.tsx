@@ -1,14 +1,164 @@
-import { render, screen } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import App from './App'
+
+afterEach(() => {
+  window.location.hash = ''
+})
+
+/** Feed text through the ControlBar's hidden PGN file input. */
+function loadPgn(text: string) {
+  const input = screen.getByTestId('pgn-file-input') as HTMLInputElement
+  const file = new File([text], 'game.pgn', { type: 'application/x-chess-pgn' })
+  fireEvent.change(input, { target: { files: [file] } })
+}
+
+/** Open the Tools disclosure (§4.2) so setup controls are reachable. */
+function openTools() {
+  const tools = screen.getByTestId('tools') as HTMLDetailsElement
+  tools.open = true
+}
 
 describe('App', () => {
   it('renders the title and board', () => {
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: /hex chess/i })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /xchess/i })).toBeTruthy()
     expect(screen.getByTestId('board-section')).toBeTruthy()
     expect(
       screen.getByRole('img', { name: /hexagonal chess board/i }),
     ).toBeTruthy()
+  })
+
+  it('loads a PGN from the toolbar into the board and move list (t61)', async () => {
+    render(<App />)
+    loadPgn('[Result "*"]\n\n1. f5 f6 e7 e5\n*')
+    await waitFor(() =>
+      expect(screen.getByTestId('move-list').textContent).toContain('f5 f6'),
+    )
+    expect(screen.getByTestId('move-list').textContent).toContain('e7 e5')
+    // Two plies replayed: back to White, no error. The turn now lives in the
+    // single status bar (§4.4), not the board footer.
+    expect(screen.getByRole('status').textContent).toBe('White to move')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('shows an illegal PGN move inline, without alert()', async () => {
+    render(<App />)
+    loadPgn('1. f5 f6 f7 f6\n*')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('PGN move 2')
+    expect(alert.textContent).toContain('f7 f6')
+    // The failed import left the game untouched.
+    expect(screen.getByTestId('move-list').textContent).toContain('no moves yet')
+  })
+
+  it('reaches the lobby from the Play online button (t67)', async () => {
+    render(<App />)
+    openTools()
+    fireEvent.click(screen.getByRole('button', { name: 'Play online' }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Create room' }),
+      ).toBeTruthy(),
+    )
+  })
+
+  it('renders the lobby at #/online (t67)', () => {
+    window.location.hash = '#/online'
+    render(<App />)
+    expect(screen.getByRole('button', { name: 'Create room' })).toBeTruthy()
+  })
+
+  it('phrases resignation once, matching the banner (t67 rvv1)', () => {
+    // Hotseat: White resigns, Black wins → the shared phrasing names the
+    // resigner. The status line and the banner must agree.
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    expect(document.querySelector('.hxc-status')?.textContent).toBe(
+      'White resigned',
+    )
+    expect(screen.getByTestId('banner-text').textContent).toBe('White resigned')
+  })
+})
+
+describe('App theme switch (t64)', () => {
+  const pick = (name: RegExp) => {
+    openTools()
+    fireEvent.click(screen.getByRole('radio', { name }))
+  }
+  const pinned = () => document.documentElement.getAttribute('data-theme')
+
+  it('pins data-theme, persists the choice, and clears back to system', () => {
+    localStorage.clear()
+    render(<App />)
+
+    // No stored choice: `system` leaves the attribute off for the OS to decide.
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+
+    pick(/^dark$/i)
+    expect(pinned()).toBe('dark')
+    expect(localStorage.getItem('hexchess:theme')).toBe('dark')
+
+    pick(/^light$/i)
+    expect(pinned()).toBe('light')
+
+    pick(/^system$/i)
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+    expect(localStorage.getItem('hexchess:theme')).toBe('system')
+  })
+
+  it('restores a stored theme on mount', () => {
+    localStorage.setItem('hexchess:theme', 'dark')
+    render(<App />)
+    openTools()
+    expect(
+      screen
+        .getByRole('radio', { name: /^dark$/i })
+        .getAttribute('aria-checked'),
+    ).toBe('true')
+    expect(pinned()).toBe('dark')
+  })
+})
+
+describe('App layout (t80)', () => {
+  it('keeps the FEN loader behind a closed Tools disclosure (§4.2)', () => {
+    render(<App />)
+    const tools = screen.getByTestId('tools') as HTMLDetailsElement
+    expect(tools.open).toBe(false)
+    expect(
+      within(tools).getByRole('form', { name: 'Load position' }),
+    ).toBeTruthy()
+  })
+
+  it('has exactly one status live region (§4.4)', () => {
+    render(<App />)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toBe('White to move')
+  })
+
+  it('puts the board before the rail in DOM order (§4.6)', () => {
+    const { container } = render(<App />)
+    const board = container.querySelector('[data-testid="board-section"]')!
+    const rail = container.querySelector('.app__rail')!
+    // Board-first: it must precede the status/actions/moves rail.
+    expect(
+      board.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('drops the game-action group once the game is over (§4.3)', () => {
+    render(<App />)
+    expect(screen.getByRole('group', { name: 'Game actions' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
+    expect(screen.queryByRole('button', { name: 'Resign' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Offer draw' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
   })
 })

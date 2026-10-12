@@ -1,0 +1,182 @@
+/* --- Layout polish (R17 / t80) --------------------------------------------
+   Imported by App.tsx AFTER the component imports, so this sheet lands after
+   theme.css in the bundle and can override what dvv1 owns this round without
+   editing theme.css.
+
+   Board-first: the board is the widest thing on the page; status, actions,
+   moves and tools live in a side rail. Everything reads tokens from
+   index.css — no literals, no new colours.
+   ------------------------------------------------------------------------- */
+
+/* --- Two-column shell (§4.6) --------------------------------------------- */
+
+/* Stacked by default: board, then the rail (status → actions → moves). The
+   DOM order already reads correctly, so mobile needs no reordering — only
+   tightening. */
+.app__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  justify-items: center;
+  width: 100%;
+}
+
+.app__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+/* 1024px and up: board left, rail right. The rail is fixed-width so the board
+   keeps every remaining pixel. */
+@media (min-width: 1024px) {
+  .app__layout {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+    justify-items: stretch;
+    gap: 24px;
+  }
+
+  .app__board-container {
+    justify-self: center;
+  }
+}
+
+/* No horizontal scroll at 390px: the grid already clamps its column, so only
+   the page padding needs to give. */
+@media (max-width: 520px) {
+  .app {
+    padding: 2rem 0.75rem 1.5rem;
+    gap: 1rem;
+  }
+}
+
+/* --- Status bar (§4.4) ----------------------------------------------------
+   One bar for both routes. The dot only renders online, so the hotseat bar is
+   just the status text on the paper. */
+
+.hxc-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--ink);
+  background: var(--panel);
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  text-align: left;
+}
+
+/* The bar owns the page's only status line, so its margin comes from the
+   bar's own padding instead of the old block margin. */
+.hxc-statusbar .hxc-status {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.hxc-statusbar__detail {
+  margin: 0;
+  flex-basis: 100%;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.hxc-statusbar__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* --- Control groups (§4.3) ------------------------------------------------ */
+
+.hxc-controls {
+  justify-content: flex-start;
+  margin-top: 0;
+  gap: 12px;
+}
+
+.hxc-controls__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Rail layout: the toolbar reads as a stacked set of printed rows. */
+@media (min-width: 1024px) {
+  .hxc-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* One filled button per page: the primary action. Ink plate, paper text —
+   the inverse of the ghost buttons around it. */
+.hxc-button--primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.hxc-button--primary:hover:not(:disabled) {
+  background: var(--cobalt);
+  border-color: var(--cobalt);
+  color: var(--paper);
+}
+
+/* --- Tools disclosure (§4.2) ----------------------------------------------
+   A closed `<details>`: mono caps summary on a hairline rule, the body
+   indented under it. The FEN loader and PGN import live here. */
+
+.hxc-tools {
+  width: 100%;
+}
+
+.hxc-tools__summary {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  color: var(--ink-dim);
+  border: 1px solid var(--ink);
+  padding: 7px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.hxc-tools__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The closed marker, drawn so it survives both moods. */
+.hxc-tools__summary::before {
+  content: '+ ';
+}
+
+.hxc-tools[open] > .hxc-tools__summary::before {
+  content: '− ';
+}
+
+.hxc-tools[open] > .hxc-tools__summary {
+  border-bottom-color: transparent;
+}
+
+.hxc-tools__body {
+  border: 1px solid var(--ink);
+  border-top: 0;
+  padding: 10px;
+  background: var(--panel);
+}
+
+.hxc-tools .hxc-position {
+  width: 100%;
+  margin: 0;
+}

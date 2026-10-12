@@ -62,7 +62,13 @@ export function parsePosition(text: string): Position {
   const fields = text.split(' ')
   if (fields.length !== 5)
     throw new Error(`expected 5 fields, got ${fields.length}`)
-  const [placement, turn, ep, half, full] = fields
+  const [placement, turn, ep, half, full] = fields as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ]
 
   const rows = placement.split('/')
   if (rows.length !== 11)
@@ -82,7 +88,7 @@ export function parsePosition(text: string): Position {
         if (!PIECE_CHARS.includes(type))
           throw new Error(`rank ${rank}: bad piece '${tok}'`)
         if (at < cells.length) {
-          board.set(keyOf(notationToAxial(cells[at])!), {
+          board.set(keyOf(notationToAxial(cells[at]!)!), {
             type,
             color: tok === type ? 'w' : 'b',
           })

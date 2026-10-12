@@ -1,85 +1,94 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ControlBar } from './ControlBar'
+
+/** Open the Tools disclosure (§4.2) so its controls are reachable. */
+function openTools() {
+  const tools = screen.getByTestId('tools') as HTMLDetailsElement
+  tools.open = true
+}
 
 describe('ControlBar', () => {
   it('fires handlers from the pixel buttons', () => {
     const onNewGame = vi.fn()
     const onUndo = vi.fn()
-    const onToggleScanlines = vi.fn()
-    render(
-      <ControlBar
-        scanlines={false}
-        onToggleScanlines={onToggleScanlines}
-        onNewGame={onNewGame}
-        onUndo={onUndo}
-        undoEnabled
-      />,
-    )
+    render(<ControlBar onNewGame={onNewGame} onUndo={onUndo} undoEnabled />)
     fireEvent.click(screen.getByRole('button', { name: 'New game' }))
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Scanlines off' }))
     expect(onNewGame).toHaveBeenCalledTimes(1)
     expect(onUndo).toHaveBeenCalledTimes(1)
-    expect(onToggleScanlines).toHaveBeenCalledTimes(1)
   })
 
   it('keeps UNDO disabled until history exists (T8)', () => {
     const onUndo = vi.fn()
-    render(
-      <ControlBar scanlines onToggleScanlines={() => {}} onUndo={onUndo} />,
-    )
+    render(<ControlBar onUndo={onUndo} />)
     const undo = screen.getByRole('button', { name: 'Undo' })
     expect(undo).toHaveProperty('disabled', true)
     fireEvent.click(undo)
     expect(onUndo).not.toHaveBeenCalled()
   })
 
-  it('reflects scanline state via aria-pressed', () => {
+  it('reflects the theme choice and reports changes (t64)', () => {
+    const onThemeChange = vi.fn()
     const { rerender } = render(
-      <ControlBar scanlines onToggleScanlines={() => {}} />,
+      <ControlBar theme="dark" onThemeChange={onThemeChange} />,
     )
-    const button = screen.getByRole('button', { name: 'Scanlines on' })
-    expect(button.getAttribute('aria-pressed')).toBe('true')
-    rerender(<ControlBar scanlines={false} onToggleScanlines={() => {}} />)
-    expect(screen.getByRole('button', { name: 'Scanlines off' })).toBeTruthy()
+    openTools()
+    expect(screen.getByRole('radiogroup', { name: 'Theme' })).toBeTruthy()
+    const checked = (name: RegExp) =>
+      screen.getByRole('radio', { name }).getAttribute('aria-checked')
+    expect(checked(/^dark$/i)).toBe('true')
+    expect(checked(/^light$/i)).toBe('false')
+    fireEvent.click(screen.getByRole('radio', { name: /^light$/i }))
+    expect(onThemeChange).toHaveBeenCalledWith('light')
+    rerender(<ControlBar theme="system" onThemeChange={onThemeChange} />)
+    expect(checked(/^system$/i)).toBe('true')
   })
 
-  it('disables actions that have no handler', () => {
-    render(<ControlBar scanlines onToggleScanlines={() => {}} />)
-    const disabled = screen
-      .getAllByRole('button')
-      .filter((button) => button.hasAttribute('disabled'))
-    expect(disabled).toHaveLength(6) // New game, Undo, AI, Resign, Draw, Export PGN
+  it('hides the theme switch when no handler is wired', () => {
+    render(<ControlBar />)
+    expect(screen.queryByRole('radiogroup', { name: 'Theme' })).toBeNull()
+  })
+
+  // B3 (t80): a group with no wired handler is not rendered at all. The old
+  // toolbar showed seven permanently dead buttons; dead controls read as
+  // broken ones.
+  it('renders only the groups it was given handlers for (B3)', () => {
+    render(<ControlBar />)
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(screen.queryByRole('group', { name: 'Primary' })).toBeNull()
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
+    expect(screen.queryByTestId('tools')).toBeNull()
+  })
+
+  it('keeps the Tools disclosure closed until opened (t80 §4.2)', () => {
+    const onAiDepthChange = vi.fn()
+    render(<ControlBar onAiDepthChange={onAiDepthChange} />)
+    const tools = screen.getByTestId('tools') as HTMLDetailsElement
+    expect(tools.open).toBe(false)
+    expect(within(tools).getByText('Tools')).toBeTruthy()
+  })
+
+  it('omits the game-action group when neither action is wired (B3)', () => {
+    render(<ControlBar onNewGame={() => {}} />)
+    expect(screen.getByRole('group', { name: 'Primary' })).toBeTruthy()
+    expect(screen.queryByRole('group', { name: 'Game actions' })).toBeNull()
   })
 
   it('fires the resign and draw handlers (T16)', () => {
     const onResign = vi.fn()
     const onOfferDraw = vi.fn()
-    render(
-      <ControlBar
-        scanlines
-        onToggleScanlines={() => {}}
-        onResign={onResign}
-        onOfferDraw={onOfferDraw}
-      />,
-    )
+    render(<ControlBar onResign={onResign} onOfferDraw={onOfferDraw} />)
     fireEvent.click(screen.getByRole('button', { name: 'Resign' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Draw' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Offer draw' }))
     expect(onResign).toHaveBeenCalledTimes(1)
     expect(onOfferDraw).toHaveBeenCalledTimes(1)
   })
 
   it('changes the AI depth from the selector (T15)', () => {
     const onAiDepthChange = vi.fn()
-    render(
-      <ControlBar
-        scanlines
-        onToggleScanlines={() => {}}
-        aiDepth={3}
-        onAiDepthChange={onAiDepthChange}
-      />,
-    )
+    render(<ControlBar aiDepth={3} onAiDepthChange={onAiDepthChange} />)
+    openTools()
     const select = screen.getByRole('combobox', { name: 'AI depth' })
     expect((select as HTMLSelectElement).value).toBe('3')
     fireEvent.change(select, { target: { value: '5' } })
@@ -91,18 +100,56 @@ describe('ControlBar', () => {
     const onExportPgn = vi.fn()
     render(
       <ControlBar
-        scanlines
-        onToggleScanlines={() => {}}
         aiEnabled
         onToggleAi={onToggleAi}
         onExportPgn={onExportPgn}
       />,
     )
+    openTools()
     const ai = screen.getByRole('button', { name: 'AI on' })
     expect(ai.getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(ai)
     fireEvent.click(screen.getByRole('button', { name: 'Export PGN' }))
     expect(onToggleAi).toHaveBeenCalledTimes(1)
     expect(onExportPgn).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads a chosen .pgn file into onLoadPgn (t61)', async () => {
+    const onLoadPgn = vi.fn()
+    render(<ControlBar onLoadPgn={onLoadPgn} />)
+    openTools()
+    const input = screen.getByTestId('pgn-file-input') as HTMLInputElement
+    expect(input.accept).toBe('.pgn,text/plain')
+    const file = new File(['1. f5 f6 e7 e5'], 'game.pgn', {
+      type: 'application/x-chess-pgn',
+    })
+    fireEvent.change(input, { target: { files: [file] } })
+    await waitFor(() =>
+      expect(onLoadPgn).toHaveBeenCalledWith('1. f5 f6 e7 e5'),
+    )
+    // The input is cleared so the same file can be re-selected.
+    expect(input.value).toBe('')
+  })
+
+  it('omits the PGN import entirely when unwired (t64)', () => {
+    render(<ControlBar />)
+    expect(screen.queryByRole('button', { name: 'Load PGN' })).toBeNull()
+    expect(screen.queryByTestId('pgn-file-input')).toBeNull()
+  })
+
+  it('cross-fades the recolour through a View Transition (t66)', () => {
+    const start = vi.fn<(callback: () => void) => void>((callback) => callback())
+    Reflect.set(document, 'startViewTransition', start)
+    try {
+      const onThemeChange = vi.fn()
+      render(<ControlBar theme="dark" onThemeChange={onThemeChange} />)
+      openTools()
+      fireEvent.click(screen.getByRole('radio', { name: /^light$/i }))
+      // The theme lands inside the transition's callback, not beside it.
+      expect(start).toHaveBeenCalledTimes(1)
+      expect(onThemeChange).toHaveBeenCalledWith('light')
+    } finally {
+      Reflect.deleteProperty(document, 'startViewTransition')
+    }
   })
 })

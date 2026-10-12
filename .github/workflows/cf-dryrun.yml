@@ -1,0 +1,33 @@
+name: CF Worker dry-run
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  cf-dryrun:
+    runs-on: ubuntu-latest
+    # Mirrors the shape of ci.yml's `worker` job so the two run the same
+    # install layout; no Cloudflare credentials are required for --dry-run.
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install worker dependencies
+        run: npm install
+
+      - name: Wrangler dry-run bundle
+        run: npx wrangler deploy --dry-run
