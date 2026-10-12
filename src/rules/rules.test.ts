@@ -47,8 +47,8 @@ function play(state: GameState, ...coords: string[]): GameState {
   for (const c of coords) {
     const m = /([a-il][1-9][0-9]?)[-x]?([a-il][1-9][0-9]?)/i.exec(c)
     if (!m) throw new Error(`bad coordinate: ${c}`)
-    const from = A(m[1])
-    const to = A(m[2])
+    const from = A(m[1]!)
+    const to = A(m[2]!)
     const legal = legalMoves(s).find(
       (move) =>
         keyOf(move.from) === keyOf(from) && keyOf(move.to) === keyOf(to),

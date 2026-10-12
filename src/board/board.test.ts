@@ -87,7 +87,7 @@ describe('board shape (91 cells)', () => {
     const total = RANK_CELL_COUNTS.reduce((a, b) => a + b, 0)
     expect(total).toBe(91)
     for (let rank = 1; rank <= 11; rank++) {
-      expect(rankCells(rank)).toHaveLength(RANK_CELL_COUNTS[rank - 1])
+      expect(rankCells(rank)).toHaveLength(RANK_CELL_COUNTS[rank - 1]!)
     }
   })
 
@@ -188,12 +188,12 @@ describe('cell colours', () => {
 
 describe('rays and neighbors', () => {
   it('ortho ray from f6 south hits f5 f4 f3 f2 f1', () => {
-    const cells = ray(K(0, 0), ORTHO_DIRS[4]).map(axialToNotation)
+    const cells = ray(K(0, 0), ORTHO_DIRS[4]!).map(axialToNotation)
     expect(cells).toEqual(['f5', 'f4', 'f3', 'f2', 'f1'])
   })
 
   it('f6 has all six orthogonal neighbours on board', () => {
-    const ns = orthoRays(K(0, 0)).map((r) => axialToNotation(r[0]))
+    const ns = orthoRays(K(0, 0)).map((r) => axialToNotation(r[0]!))
     expect(ns).toEqual(['g6', 'f7', 'e6', 'e5', 'f5', 'g5'])
   })
 
@@ -321,7 +321,7 @@ describe('initial position (Gliński array)', () => {
 
   it('position is exactly mirror-symmetric (cell by cell)', () => {
     for (const [key, piece] of STARTING_POSITION) {
-      const [q, r] = key.split(',').map(Number)
+      const [q, r] = key.split(',').map(Number) as [number, number]
       const m = keyOf(mirrorCell(K(q, r)))
       const counterpart = STARTING_POSITION.get(m)
       expect(counterpart).toBeDefined()
@@ -333,7 +333,7 @@ describe('initial position (Gliński array)', () => {
   it('all 36 pieces sit on distinct on-board cells', () => {
     expect(STARTING_POSITION.size).toBe(36)
     for (const key of STARTING_POSITION.keys()) {
-      const [q, r] = key.split(',').map(Number)
+      const [q, r] = key.split(',').map(Number) as [number, number]
       expect(Math.abs(q)).toBeLessThanOrEqual(5)
       expect(Math.abs(r)).toBeLessThanOrEqual(5)
       expect(Math.abs(q + r)).toBeLessThanOrEqual(5)

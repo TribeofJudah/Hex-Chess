@@ -1,15 +1,117 @@
-:root {
-  /* 8-bit palette tokens (T7 will extend these) */
-  --color-bg: #0f0f1b;
-  --color-panel: #1a1a2e;
-  --color-border: #e0e0e0;
-  --color-text: #f8f8f2;
-  --color-text-dim: #8b8b9e;
-  --color-accent: #f4a825;
-  --color-hex: #2d2d52;
+/* --- Xchess poster theme (R14 / t60) ------------------------------------
+   Two moods out of one token system:
 
-  --font-pixel: 'Press Start 2P', monospace;
-  --border-chunky: 2px solid var(--color-border);
+     LIGHT  "risograph print poster" — cream paper, ink, terracotta and
+            orange inks, cobalt accent, mustard highlight. This is the
+            default.
+     DARK   "wireframe" — pure black, 1px white rules, wide grotesk/mono.
+
+   The mood follows the OS preference; `data-theme="dark"` /
+   `data-theme="light"` on <html> overrides it (that is the hook the
+   ControlBar toggle drives). The dark palette is written twice — once under
+   the media query, once under the explicit override — because CSS has no DRY
+   switch across a media boundary.
+
+   Nothing here sets a colour inline: every surface reads a token, so the two
+   moods stay one stylesheet.
+   ------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light dark;
+
+  /* Inks. `--terracotta` is 3.7:1 on `--paper`: large text, fills and rules
+     only — body copy uses `--ink`. */
+  --paper: #efe6d4;
+  --ink: #1f1c19;
+  /* 68% keeps the dim ink at 5.4:1 on the paper — 62% measured 4.3:1. */
+  --ink-dim: rgb(31 28 25 / 68%);
+  --terracotta: #c4532f;
+  --orange: #e8622c;
+  /* The old #2f5fd0 measured 2.7:1 against the board's warm-grey cell, under
+     the 3:1 a selected border or a focus ring owes; darkened until it clears
+     that cell (3.2:1) and everything else it is used on. */
+  --cobalt: #2a56bd;
+  --mustard: #f0a81c;
+
+  /* Texture: a thin printed grid over the paper, and a grain overlay. */
+  --grid: rgb(232 98 44 / 35%);
+  --grid-step: 32px;
+  --grain: 0.35;
+  --panel: rgb(255 255 255 / 46%);
+  --shadow: 6px 6px 0 var(--orange);
+  --title-shadow: 4px 4px 0 var(--terracotta);
+  --btn-shadow: 2px 2px 0 var(--ink);
+
+  /* Motion (R16 / t66). Print-poster motion: short, crisp, no overshoot. Every
+     use is wrapped in prefers-reduced-motion; these mirror the constants in
+     src/ui/motion.ts. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
+
+  /* Type: geometric grotesk for display, mono for every label and number. */
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Space Mono', ui-monospace, sfmono-regular, monospace;
+  --track-display: 0.06em;
+  --track-label: 0.2em;
+
+  /* Legacy aliases. App-wide rules written before the poster theme resolve
+     through these; nothing new should adopt them. */
+  --color-bg: var(--paper);
+  --color-panel: var(--panel);
+  --color-border: var(--ink);
+  --color-text: var(--ink);
+  --color-text-dim: var(--ink-dim);
+  --color-accent: var(--terracotta);
+  --color-hex: var(--terracotta);
+  --font-pixel: var(--font-display);
+  --border-chunky: 2px solid var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --paper: #000;
+    --ink: #f4f1ea;
+    --ink-dim: rgb(244 241 234 / 72%);
+    /* Wireframe is monochrome: every "ink" collapses to the one white line. */
+    --terracotta: #f4f1ea;
+    --orange: #f4f1ea;
+    --cobalt: #f4f1ea;
+    --mustard: #f4f1ea;
+
+    --grid: rgb(244 241 234 / 20%);
+    --grain: 0;
+    --panel: rgb(255 255 255 / 4%);
+    --shadow: none;
+    --title-shadow: none;
+    /* No offset shadows in the wireframe mood; buttons still take the press
+       offset (theme.css), they just have nothing to collapse. */
+    --btn-shadow: none;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --paper: #000;
+  --ink: #f4f1ea;
+  --ink-dim: rgb(244 241 234 / 72%);
+  --terracotta: #f4f1ea;
+  --orange: #f4f1ea;
+  --cobalt: #f4f1ea;
+  --mustard: #f4f1ea;
+
+  --grid: rgb(244 241 234 / 20%);
+  --grain: 0;
+  --panel: rgb(255 255 255 / 4%);
+  --shadow: none;
+  --title-shadow: none;
+  --btn-shadow: none;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }
 
 * {
@@ -17,11 +119,42 @@
 }
 
 body {
+  /* Containing block for the grain layer below, so it spans the document
+     rather than the viewport. */
+  position: relative;
   margin: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: system-ui, sans-serif;
   min-height: 100vh;
+  color: var(--ink);
+  background-color: var(--paper);
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      var(--grid) 0 1px,
+      transparent 1px var(--grid-step)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      var(--grid) 0 1px,
+      transparent 1px var(--grid-step)
+    );
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Risograph paper grain, light mode only — `--grain` is 0 in the dark block.
+   Multiply-blended so it darkens the ink instead of washing it out. Absolute,
+   not fixed: a viewport-sized overlay stops at the fold, which leaves a band
+   with hard edges on a scrolling page and on any full-page capture (t64
+   defect 2). */
+body::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--grain);
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
 }
 
 .app {
@@ -29,8 +162,12 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 2rem;
-  padding: 4rem 1rem 2rem;
+  padding: 3.5rem 1rem 2rem;
   text-align: center;
+}
+
+.app__header {
+  max-width: 40rem;
 }
 
 .app__hex {
@@ -38,42 +175,43 @@ body {
   height: 96px;
 }
 
+/* Misregistered ink: solid black letterform on a terracotta offset. */
 .app__title {
-  font-family: var(--font-pixel);
-  font-size: 1.75rem;
   margin: 1rem 0 0.5rem;
-  color: var(--color-accent);
-  text-shadow: 3px 3px 0 #000;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 9vw, 3.5rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: var(--track-display);
+  text-transform: uppercase;
+  color: var(--ink);
+  text-shadow: var(--title-shadow);
 }
 
 .app__subtitle {
-  font-family: var(--font-pixel);
-  font-size: 0.625rem;
-  color: var(--color-text-dim);
   margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }
 
 .app__panel {
-  background: var(--color-panel);
-  border: var(--border-chunky);
+  background: var(--panel);
+  border: 1px solid var(--ink);
   padding: 1.5rem 2rem;
-  box-shadow: 6px 6px 0 #000;
-}
-
-.app__status {
-  font-family: var(--font-pixel);
-  font-size: 0.75rem;
-  margin: 0 0 0.75rem;
-  color: #6bcf63;
+  box-shadow: var(--shadow);
 }
 
 .app__hint {
   margin: 0;
   font-size: 0.875rem;
-  color: var(--color-text-dim);
+  color: var(--ink-dim);
 }
 
 .app__footer {
-  font-size: 0.75rem;
-  color: var(--color-text-dim);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--ink-dim);
 }

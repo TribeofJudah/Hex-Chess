@@ -1,57 +1,89 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HexBoard } from './ui/HexBoard'
-import { ControlBar } from './ui/ControlBar'
+import { ControlBar, type Theme } from './ui/ControlBar'
 import { PositionEditor } from './ui/PositionEditor'
 import { MoveList } from './ui/MoveList'
-import { GameOverBanner } from './ui/GameOverBanner'
-import { useGame, type GameOver } from './ui/useGame'
+import { GameOverBanner, gameOverText } from './ui/GameOverBanner'
+import { Lobby } from './ui/Lobby'
+import { RemoteRoom } from './ui/RemoteRoom'
+import { useGame } from './ui/useGame'
+import { DrawOfferBanner } from './ui/DrawOfferBanner'
 import { downloadPgn, toPgn } from './ui/pgn'
+import { parsePgn, replayPgn } from './ui/pgnImport'
+import { navigate, useRoute } from './ui/router'
+import { StatusBar } from './ui/StatusBar'
 import { glinskiRules } from './rules/adapter'
+// Layout overrides last: the built sheet must come after theme.css (t80).
+import './ui/layout.css'
 
-function gameOverText(gameOver: GameOver): string {
-  if (gameOver.kind === 'agreement') return 'Draw — by agreement'
-  if (gameOver.kind === 'resign') return `${gameOver.winner} wins — resignation`
-  if (gameOver.winner) {
-    return gameOver.kind === 'checkmate'
-      ? `Checkmate — ${gameOver.winner} wins`
-      : `Stalemate — ${gameOver.winner} wins 0.75-0.25`
+/** Shared with the pre-paint script in index.html — change both together. */
+const THEME_KEY = 'hexchess:theme'
+
+function readStoredTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch {
+    // Private mode blocks storage; fall through to the OS preference.
   }
-  return gameOver.kind === 'fifty-move'
-    ? 'Draw — fifty-move rule'
-    : 'Draw — threefold repetition'
+  return 'system'
 }
 
-export default function App() {
+// t67 (rvv1): `gameOverText` now lives in GameOverBanner, so the banner and
+// this status line share one phrasing.
+
+/** Local hotseat (or vs-AI) game — the default route. */
+function HotseatGame() {
   const game = useGame(glinskiRules)
-  const [scanlines, setScanlines] = useState(true)
+  const [theme, setTheme] = useState<Theme>(readStoredTheme)
+  const [pgnError, setPgnError] = useState<string | null>(null)
+
+  // `system` is the *absence* of the attribute, so prefers-color-scheme wins.
+  useEffect(() => {
+    const root = document.documentElement
+    if (theme === 'system') root.removeAttribute('data-theme')
+    else root.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem(THEME_KEY, theme)
+    } catch {
+      // Private mode: the theme still applies, it just does not outlive the tab.
+    }
+  }, [theme])
+
+  // PGN import (t61): parse, resolve against the rule-book generator, then
+  // replay the validated list. A rejected move shows the ply + reason inline
+  // (the `.hxc-position__error` role=alert pattern) instead of an alert().
+  const loadPgn = (text: string) => {
+    const { sans } = parsePgn(text)
+    const result = replayPgn(sans, glinskiRules)
+    if (Array.isArray(result)) {
+      setPgnError(null)
+      game.loadMoves(result)
+    } else {
+      setPgnError(`PGN move ${result.ply + 1}: ${result.error}`)
+    }
+  }
 
   const status = game.gameOver
     ? gameOverText(game.gameOver)
-    : `${game.turn === 'white' ? 'White' : 'Black'} to move`
+    : `${game.turn === 'white' ? 'White' : 'Black'} to move${
+        game.inCheckCell ? ' — check' : ''
+      }`
+
+  // Offer affordances (t49): the local machine answers its own prompts —
+  // hidden while the game is over or an offer is already open, and on the
+  // engine's turn (AI never offers).
+  const canOfferDraw =
+    !game.gameOver &&
+    !game.drawOffer &&
+    !(game.aiEnabled && game.turn === 'black')
 
   return (
     <main className="app">
       <header className="app__header">
-        <h1 className="app__title">HEX CHESS</h1>
+        <h1 className="app__title">XCHESS</h1>
         <p className="app__subtitle">Gliński&apos;s variant — hotseat</p>
       </header>
-
-      <ControlBar
-        scanlines={scanlines}
-        onToggleScanlines={() => setScanlines((on) => !on)}
-        onNewGame={game.newGame}
-        onUndo={game.undo}
-        undoEnabled={game.canUndo}
-        aiEnabled={game.aiEnabled}
-        onToggleAi={game.toggleAi}
-        aiDepth={game.aiDepth}
-        onAiDepthChange={game.setAiDepth}
-        onResign={game.resign}
-        onOfferDraw={game.agreeDraw}
-        onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
-      />
-
-      <PositionEditor onLoad={game.loadFen} />
 
       <div className="app__layout">
         <section
@@ -59,19 +91,23 @@ export default function App() {
           data-testid="board-section"
           aria-label="Chess board"
         >
-          <p className="hxc-status" role="status">
-            {status}
-          </p>
           <HexBoard
             pieces={game.position}
             size={24}
             legend={true}
-            scanlines={scanlines}
             onCellClick={game.clickCell}
             selectedCell={game.selected ?? undefined}
             validTargets={game.validTargets}
             lastMove={game.lastMove ?? undefined}
             inCheckCell={game.inCheckCell}
+            promotion={game.pendingPromotion}
+            onPromotionChoose={game.choosePromotion}
+          />
+          <DrawOfferBanner
+            offer={game.drawOffer && !game.gameOver ? game.drawOffer : null}
+            canAnswer={!game.aiEnabled}
+            onAccept={() => game.chooseOffer('accept')}
+            onDecline={() => game.chooseOffer('decline')}
           />
           {game.gameOver ? (
             <GameOverBanner
@@ -80,12 +116,45 @@ export default function App() {
             />
           ) : null}
         </section>
-        <MoveList
-          moves={game.moves}
-          turn={game.turn}
-          viewPly={game.viewPly}
-          onJump={game.jumpTo}
-        />
+
+        {/* Side rail: status, actions + tools, moves. Below 1024px it stacks
+            under the board, board first (t80 §4.4/§4.6). */}
+        <div className="app__rail">
+          <StatusBar text={status} />
+
+          <ControlBar
+            theme={theme}
+            onThemeChange={setTheme}
+            onNewGame={game.newGame}
+            onUndo={game.undo}
+            undoEnabled={game.canUndo}
+            aiEnabled={game.aiEnabled}
+            onToggleAi={game.toggleAi}
+            aiDepth={game.aiDepth}
+            onAiDepthChange={game.setAiDepth}
+            // Game actions only exist while a game is live (t80 §4.3).
+            {...(game.gameOver ? {} : { onResign: game.resign })}
+            onOfferDraw={
+              canOfferDraw ? () => game.chooseOffer('offer') : undefined
+            }
+            onExportPgn={() => downloadPgn(toPgn(game.moves, game.gameOver))}
+            onLoadPgn={loadPgn}
+            onCreateRoom={() => navigate({ name: 'online' })}
+            tools={<PositionEditor onLoad={game.loadFen} />}
+          />
+
+          {pgnError ? (
+            <p className="hxc-position__error" role="alert">
+              {pgnError}
+            </p>
+          ) : null}
+
+          <MoveList
+            moves={game.moves}
+            viewPly={game.viewPly}
+            onJump={game.jumpTo}
+          />
+        </div>
       </div>
 
       <footer className="app__footer">
@@ -93,4 +162,21 @@ export default function App() {
       </footer>
     </main>
   )
+}
+
+export default function App() {
+  const route = useRoute()
+  if (route.name === 'online') {
+    return <Lobby />
+  }
+  if (route.name === 'play') {
+    return (
+      <RemoteRoom
+        key={route.roomCode}
+        roomCode={route.roomCode}
+        onExit={() => navigate({ name: 'game' })}
+      />
+    )
+  }
+  return <HotseatGame />
 }
