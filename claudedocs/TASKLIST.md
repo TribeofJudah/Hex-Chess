@@ -3,7 +3,9 @@
 Repo: https://github.com/TribeofJudah/Hex-Chess · local: ~/Desktop/Projects/HexChess
 Stack decision: Vite + React + TypeScript, SVG hex board, Vitest, plain CSS, no backend (local 2-player first).
 Visual direction: retro/pixel aesthetic — pixel typeface (Press Start 2P, bundled via @fontsource/press-start-2p, loaded locally, no runtime CDN), limited 8-bit palette on dark background, chunky 2px borders, hex cells as flat colored tiles, pieces as pixel-style SVG glyphs, optional CRT scanline overlay (CSS only, toggleable). No Tailwind, no UI kit, no icon deps.
-Agent stack: dpp1 = dispatcher (antigravity cli, pane 38) — owns GitHub, adds/dispatches luvus tasks, reviews + merges everything. dvv1 = developer 1 (freebuff glm5.3 flash, pane 41) — engine + tests. dvv2 = developer 2 (claude glm5.3 flash, pane 37) — UI + visual tasks.
+Agent stack (current, 2026-10-12): dispatcher = claude (Claude Code), owns luvus task creation, merges, GitHub. rvv1 = reviewer (agy). dvv1 = developer 1 (deepseek v1 flash via Claude Code) — engine, bench core, suites. dvv2 = developer 2 (glm-5.3-flash via Claude Code) — UI, TUI, reports. The older dpp1/freebuff/antigravity assignments below are history; the Round 19+ tables use the current stack.
+
+**CURRENT ROUND:** Round 19 (Xchess bench). Start with `claudedocs/BENCH_BRIEFS.md` for the per-task briefs and gates; `claudedocs/XCHESS_BENCH.md` for the design. Rounds 1–18 below are history.
 Branch model: `dev` as integration branch, per-task feature branches (`task/<n>-<slug>`), PR into `dev`, PR to `main` per phase. Dispatcher reviews + merges + pushes GitHub.
 Source of truth for rules: https://en.wikipedia.org/wiki/Hexagonal_chess#Gliński's_hexagonal_chess — devs must verify every rule against it, not from memory.
 

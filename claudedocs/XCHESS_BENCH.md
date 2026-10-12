@@ -89,19 +89,51 @@ xc report session <run-id>                              # session report (SVG/HT
 
 ## §4a.1 JSONL contract
 
-As the assessment's §3 taxonomy: `{ ts, gameId, model, ply, phase, prompt:{...}, response:{...}, verdict:{...}, engine:{...}, game:{...} }` —
-the same contract as the assessment doc; `src/bench/runner.ts` is its implementation.
+Self-contained: `src/bench/runner.ts` (`PlyRecord`) is the implementation. One line per ply:
+
+```json
+{"gameId":"g7","model":"random","ply":1,"side":"w","fen":"<serializePosition>","response":{"move":"Pf5f6","trace":"...","confidence":0.4},"verdict":{"legal":true,"san":"Pf5f6"},"engine":null,"game":{"over":false,"result":null,"winner":null}}
+```
+
+- `engine` is `null` until t91 (grader) fills `{evalBefore, evalAfter, cpLoss, bestMove, pv:[...]}`.
+- Future fields are additive only; no renames without a version bump in this doc.
+- Every metric in §4 must be recomputable from this file alone (§6.1).
+
+## §4a.2 Retry policy (illegal-move repair)
+
+The §4 metric "illegal-retry / repair rate" needs the runner to *allow* retries, not forfeit on the first illegal move:
+
+- `MatchConfig.maxRetries` (default 0 = current behaviour). When > 0, an illegal move re-prompts the same agent with the rejected text and the legal-move list; the agent gets `retry: n` in `AgentContext`.
+- Each attempt is one JSONL line (`response` = that attempt, `verdict.legal` per attempt). The ply's final outcome is the last line for that `ply`.
+- After `maxRetries` illegal attempts the game ends `illegal` as today.
+- Default stays 0 until S1 (t93) sets it; with 0 the existing runner tests are unchanged.
+
+## §4a.3 Model adapter (t96)
+
+`Agent.decide(ctx)` is the only seam. A model adapter implements it by:
+
+1. Building a prompt from `ctx.state` (FEN + ASCII/legal list), `ctx.history`, and the retry note if `ctx.retry > 0`.
+2. Calling a provider through a `ModelClient` interface `{ complete(prompt, {maxTokens}) → text }`. Tests use a mock client; **no network in tests or CI**.
+3. Parsing the reply into `AgentDecision` (move text must match a `LegalMove.text` exactly; trace/confidence optional).
+4. Enforcing a per-game token cap; exceeding it ends the game `token-cap`.
+
+No provider SDK is added in Phase A (§8 no new deps): the real `ModelClient` implementation is a separate, owner-approved step.
 
 ## §5 Phases → tasks (Round 19 onward)
 
 | Phase | Task | Scope | Unlocks |
 |---|---|---|---|
-| A | **x1** headless runner + JSONL + random/greedy bots + adapter interface | `src/bench/runner.ts, adapter/, bots/` | anything grader-dependent |
-| A | **x2** grading engine: per-ply eval + PV + quiescence (deepen `src/ai`) | `src/ai/**`, `src/bench/grader.ts` | cp-loss, blunder rate, S2/S3 authoring |
-| A | **§6 TUI harness (x3)**: `xc` CLI + bench-watch, metrics, heat, ladder screens | `src/bench/tui/**` + `scripts/` bin | human-facing bench; the artifact's mockups become the contract |
-| B | **x4** suites S1/S4 (legality gauntlet + consistency probes) | `src/bench/suites/**` | first stress data |
-| B | **x5** session report generator → artifact publish | `src/bench/report.ts` | provenance loop (§7 CI) |
-| B | **x6** model-vs-model matches + anchor Elo, nightly pinned-run CI | `scripts/`, `.github/workflows/` | the refinement loop closes |
+Numbering: the **t-ids are canonical** (they match luvus and TASKLIST). The x-labels below are the same tasks.
+
+| Phase | t-id (x-label) | Scope | Unlocks |
+|---|---|---|---|
+| A | **t90** (x1) headless runner + JSONL + random/greedy bots + adapter interface + retry policy §4a.2 | `src/bench/runner.ts, adapter.ts, bots.ts` | anything grader-dependent |
+| A | **t91** (x2) grading engine: per-ply eval + PV + quiescence (deepen `src/ai`) | `src/ai/**`, `src/bench/grader*` | cp-loss, blunder rate, S2/S3 authoring |
+| A | **t92** (x3) `xc` CLI + TUI: bench-watch, metrics, heat, ladder | `src/bench/tui/**` + `scripts/` bin | human-facing bench |
+| A | **t96** (new) model adapter §4a.3: `ModelClient`, prompt builder, reply parser, token cap, mock client | `src/bench/adapter/**` | real model-vs-model play (no network in Phase A) |
+| B | **t93** (x4) suites S1/S4 + registry | `src/bench/suites/**` | first stress data |
+| B | **t94** (x5) session report generator → artifact publish | `src/bench/report*` | provenance loop |
+| B | **t95** (x6) match scheduler, anchor Elo + Wilson CIs, pinned-engine regression CI | `scripts/`, `.github/workflows/` (CI edit needs owner OK) | the refinement loop closes |
 
 ## §6 TUI interface (what the terminal UI renders)
 

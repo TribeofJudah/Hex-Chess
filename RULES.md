@@ -33,7 +33,10 @@ process rules.
   without an explicit dispatcher signal. Out-of-fence wiring (mounting
   a new component, threading an existing prop) is acceptable if the
   dispatcher has sanctioned it for the round; flag in the report.
-- Workers do NOT commit. The dispatcher reviews, commits, and pushes.
+- Workers do NOT commit to `dev`. The dispatcher reviews, commits, and pushes.
+  - **Exception (Round 19+ bench tasks, luvus worktrees):** the worker commits to its
+    own luvus task branch, never `dev`. The dispatcher merges. Briefs live in
+    `claudedocs/BENCH_BRIEFS.md`.
 - Workers write a short report at `/tmp/<agent>_round<N>_report.md`.
 - Both workers may run in parallel against the same `dev` checkout.
   The fences must be disjoint. The dispatcher reviews both diffs and may

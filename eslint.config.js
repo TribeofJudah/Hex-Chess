@@ -32,6 +32,25 @@ export default tseslint.config(
     },
   },
   {
+    // XCHESS_BENCH §7: the bench and the play surface share the rules core only.
+    files: ['src/bench/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['**/ui/**', '**/ui'], message: 'src/bench must not import src/ui (XCHESS_BENCH §7).' }] },
+      ],
+    },
+  },
+  {
+    files: ['src/ui/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [{ group: ['**/bench/**', '**/bench'], message: 'src/ui must not import src/bench (XCHESS_BENCH §7).' }] },
+      ],
+    },
+  },
+  {
     files: ['**/*.test.{ts,tsx}', 'src/test/**'],
     languageOptions: {
       globals: {
