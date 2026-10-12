@@ -1,0 +1,5 @@
+XCHESS DASH · metrics · corpus: 85 lines · 3 games · 3 models
+model            legal%   retry repair%   cp/mv   blun%  tok/mv  Elo±CI
+greedy-capture   100.0%        0        —       19     0.0%        — 2426 ±681
+random           100.0%        0        —        —        —        — 2426 ±681
+flaky             43.8%        7    60.0%       19     0.0%        — -352 ±9999

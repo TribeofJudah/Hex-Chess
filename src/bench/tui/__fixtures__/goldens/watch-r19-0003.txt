@@ -1,0 +1,23 @@
+XCHESS BENCH · watch
+game r19-0003 · 6 lines · result: forfeit (illegal move) · white wins
+          ♝            white greedy-capture
+        ·   ♚          black flaky
+      ♞   ♝   ♞        ────────────────────────
+    ♜   ·   ·   ♜        1. Rc1d2    Qe10e8
+  ♟   ·   ♝   ·   ♟      2. Qe1e2
+·   ♟   ♛   ·   ♟   ·  repairs
+  ·   ♟   ·   ♟   ·     ply 4 · Ke1e6 ✗ (retry 0)
+·   ·   ♟   ♟   ·   ·   ply 4 · Kh1h5 ✗ (retry 1)
+  ·   ·   ♟   ·   ·     ply 4 · Kc1c6 ✗ (retry 2)
+·   ·   ·   ·   ·   ·  eval ▁▆█  -28 → -4
+  ·   ·   ·   ·   ·    game over
+·   ·   ·   ·   ·   ·
+  ·   ·   ♙   ·   ·
+·   ·   ♙   ♙   ·   ·
+  ·   ♙   ·   ♙   ·
+·   ♙   ·   ·   ♙   ·
+  ♙   ♖   ♗   ·   ♙
+    ·   ♕   ·   ♖
+      ♘   ♗   ♘
+        ·   ♔
+          ♗

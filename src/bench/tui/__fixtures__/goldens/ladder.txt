@@ -1,0 +1,11 @@
+XCHESS DASH · ladder · 3 games · mean-centred @1500
+ # model               Elo   95% CI    W/L/D   legal%
+ 1 greedy-capture     2426    ±681   1/0/1  100.0%
+ 2 random             2426    ±681   1/0/1  100.0%
+ 3 flaky              -352   ±9999   0/2/0   43.8%
+
+              greedy-c  random   flaky
+greedy-capture       ·     50%    100%
+random             50%       ·    100%
+flaky               0%      0%       ·
+note · overlapping CIs 1↔2 — rank order not significant at this n

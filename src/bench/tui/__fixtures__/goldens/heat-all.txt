@@ -1,0 +1,22 @@
+XCHESS DASH · heat
+          ·            all models · illegal-move density · 9 illegal attempts · peak 2
+        ·   ·          ramp · ░ ▒ ▓  (low → high)
+      ·   ·   ·
+    ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+·   ·   ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+·   ·   ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+·   ·   ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+·   ·   ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+·   ·   ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+▒   ·   ·   ·   ·   ·
+  ·   ·   ·   ·   ·
+    ▓   ·   ·   ·
+      ·   ·   ▓
+        ▓   ▓
+          ·
